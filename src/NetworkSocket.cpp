@@ -1,13 +1,15 @@
 #include <NetworkSocket.hpp>
 #include <stdexcept>
+#include <array>
 #include <format>
 #include <WS2tcpip.h>
 #include <iostream>
+#include <optional>
+#include <string>
 #include <HttpRoute.hpp>
 #include <chrono>
 #include <SocketConnection.hpp>
 #include <ConnectionPool.hpp>
-#include <ScopeGuard.hpp>
 
 namespace
 {
@@ -18,49 +20,60 @@ namespace
 
 Result<void, DefaultErrorType> NetworkSocket::start()
 {
-    if (!port())
+    auto rPort = port();
+    if (!rPort)
     {
-        return Error(DefaultErrorType::NotSpecialized, std::format("Impossible to initalized the socket because the port is not set"));
+        return Result<void, DefaultErrorType>{rPort.error()};
     }
+    const auto portValue = rPort.value();
 
-    WSADATA data;
-    int error = WSAStartup(WINSOCK_VERSION, &data);
-    if (error != 0)
+    auto rIp = ip();
+    const auto ipValue = rIp ? rIp.value() : std::string{"0.0.0.0"};
+
+    WSADATA data{};
+    if (const int startupError = WSAStartup(WINSOCK_VERSION, &data); startupError != 0)
     {
-        return Error(DefaultErrorType::NotSpecialized, std::format("Fail to init the socket : [{}] {}", error, WSAGetLastError()));
+        return Error(DefaultErrorType::NotSpecialized, std::format("Fail to init the socket : [{}] {}", startupError, WSAGetLastError()));
     }
 
     m_handle = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
     if (m_handle == INVALID_SOCKET)
     {
+        WSACleanup();
         return Error(DefaultErrorType::NotSpecialized, std::format("Fail to create the socket : {}", WSAGetLastError()));
     }
 
-    if (!ip())
+    if (!rIp)
     {
         m_sourceData.sin_addr.s_addr = INADDR_ANY;
         m_sourceData.sin_family = AF_INET;
     }
 
-    error = bind(m_handle, (struct sockaddr*)&m_sourceData, sizeof(m_sourceData));
-
-    if (error != 0)
+    if (const int bindError = bind(m_handle, reinterpret_cast<sockaddr*>(&m_sourceData), sizeof(m_sourceData)); bindError != 0)
     {
-        return Error(DefaultErrorType::NotSpecialized, std::format("Fail to bind on {}:{} : [{}] {}", ip().Data(), m_sourceData.sin_port, error, WSAGetLastError()));
+        const auto wsaError = WSAGetLastError();
+        closesocket(m_handle);
+        m_handle = INVALID_SOCKET;
+        WSACleanup();
+        return Error(DefaultErrorType::NotSpecialized, std::format("Fail to bind on {}:{} : [{}] {}", ipValue, portValue, bindError, wsaError));
     }
 
-    std::cout << std::format("Server listening on {}:{}\n", ip().Data().c_str(), port().Data());
-    if (!m_listen())
+    std::cout << std::format("Server listening on {}:{}\n", ipValue, portValue);
+
+    if (auto listenResult = m_listen(); !listenResult)
     {
-        return Error(DefaultErrorType::NotSpecialized, std::format("Fail to listen on {}:{} : [{}] {}", ip().Data(), m_sourceData.sin_port, error, WSAGetLastError()));
+        auto error = listenResult.error();
+        closesocket(m_handle);
+        m_handle = INVALID_SOCKET;
+        WSACleanup();
+        return Result<void, DefaultErrorType>{std::move(error)};
     }
 
     while (true)
     {
-        auto isConnected = m_connect();
-        if (!isConnected)
+        if (auto isConnected = m_connect(); !isConnected)
         {
-            std::cerr << isConnected.Error().GetFormatedError() << '\n';
+            std::cerr << isConnected.error().GetFormatedError() << '\n';
         }
     }
 
@@ -70,8 +83,16 @@ Result<void, DefaultErrorType> NetworkSocket::start()
 
 void NetworkSocket::ip(std::string_view ip)
 {
-    m_sourceData.sin_family = ip.find(":") == std::string::npos ? AF_INET : AF_INET6;
-    inet_pton(m_sourceData.sin_family, ip.data(), &(m_sourceData.sin_addr));
+    if (ip.find(':') != std::string::npos)
+    {
+        throw std::runtime_error("IPv6 addresses are not supported by this socket implementation");
+    }
+
+    m_sourceData.sin_family = AF_INET;
+    if (inet_pton(AF_INET, ip.data(), &(m_sourceData.sin_addr)) != 1)
+    {
+        throw std::runtime_error(std::format("Invalid ip address provided: {}", ip));
+    }
 }
 
 
@@ -94,7 +115,7 @@ Result<uint32_t, DefaultErrorType> NetworkSocket::port() const
         return Error(DefaultErrorType::NotSpecialized, "Port is not set");
     }
 
-    return ntohs( m_sourceData.sin_port );
+    return ntohs(m_sourceData.sin_port);
 }
 
 
@@ -104,24 +125,30 @@ NetworkSocket::~NetworkSocket()
 }
 
 
-bool NetworkSocket::m_listen()
+Result<void, DefaultErrorType> NetworkSocket::m_listen()
 {
-    return listen(m_handle, 20) == 0;
+    if (listen(m_handle, SOMAXCONN) == 0)
+    {
+        return {};
+    }
+
+    const auto wsaError = WSAGetLastError();
+    return Error(DefaultErrorType::NotSpecialized, std::format("Fail to listen on the socket : {}", wsaError));
 }
 
 
 Result<void, DefaultErrorType> NetworkSocket::m_connect()
 {
-    if ( !m_pool )
+    if (!m_pool)
     {
         return Error(DefaultErrorType::NotSpecialized, "Pool unitialized");
     }
     SOCKADDR_IN clientData;
     int clientSize = sizeof(clientData);
-    SOCKET connection = accept(m_handle, (sockaddr*) &clientData, &clientSize);
+    SOCKET connection = accept(m_handle, reinterpret_cast<sockaddr*>(&clientData), &clientSize);
     if (connection == INVALID_SOCKET)
     {
-        return Error(DefaultErrorType::NotSpecialized, std::format("Fail to accept the connection1 : {}", WSAGetLastError()));
+        return Error(DefaultErrorType::NotSpecialized, std::format("Fail to accept the connection : {}", WSAGetLastError()));
     }
 
     m_pool->m_push({ connection, clientData });
@@ -136,19 +163,31 @@ Result<void, DefaultErrorType> NetworkSocket::stop()
         m_pool->stop();
     }
 
-    if (int error = shutdown(m_handle, 2); error != 0)
+    std::optional<Error<DefaultErrorType>> firstError;
+
+    if (m_handle != INVALID_SOCKET)
     {
-        return Error(DefaultErrorType::NotSpecialized, std::format("Fail to shutdown the main socket : [{}] {}", error, WSAGetLastError()) );
+        if (const int error = shutdown(m_handle, SD_BOTH); error != 0)
+        {
+            firstError.emplace(DefaultErrorType::NotSpecialized, std::format("Fail to shutdown the main socket : [{}] {}", error, WSAGetLastError()));
+        }
+
+        if (const int error = closesocket(m_handle); error != 0 && !firstError)
+        {
+            firstError.emplace(DefaultErrorType::NotSpecialized, std::format("Fail to disconnect the main socket : [{}] {}", error, WSAGetLastError()));
+        }
+
+        m_handle = INVALID_SOCKET;
     }
 
-    if (int error = closesocket(m_handle); error != 0)
+    if (const int error = WSACleanup(); error != 0 && error != WSANOTINITIALISED && !firstError)
     {
-        return Error(DefaultErrorType::NotSpecialized, std::format("Fail to disconnect the main socket : [{}] {}", error, WSAGetLastError()));
+        firstError.emplace(DefaultErrorType::NotSpecialized, std::format("Fail to free winsock : [{}] {}", error, WSAGetLastError()));
     }
 
-    if (int error = WSACleanup(); error != 0)
+    if (firstError)
     {
-        return Error(DefaultErrorType::NotSpecialized, std::format("Fail to free winsock : [{}] {}", error, WSAGetLastError()));
+        return Result<void, DefaultErrorType>{std::move(*firstError)};
     }
 
     return {};
@@ -157,14 +196,14 @@ Result<void, DefaultErrorType> NetworkSocket::stop()
 namespace {
 
     
-    Result<std::string, DefaultErrorType> _GetIpFromSockaddr(const SOCKADDR_IN* addr )
+    Result<std::string, DefaultErrorType> _GetIpFromSockaddr(const SOCKADDR_IN* addr)
     {
-        std::string ip;
-        ip.reserve(addr->sin_family == AF_INET ? 16 : 48);
-        if (inet_ntop(addr->sin_family, &addr->sin_addr, ip.data(), ip.capacity()) == NULL)
+        constexpr std::size_t bufferSize = INET6_ADDRSTRLEN;
+        std::array<char, bufferSize> buffer{};
+        if (!inet_ntop(addr->sin_family, reinterpret_cast<const void*>(&addr->sin_addr), buffer.data(), static_cast<socklen_t>(buffer.size())))
         {
             return Error(DefaultErrorType::NotSpecialized, std::format("Fail to get ip : {}", WSAGetLastError()));
         }
-        return ip;
+        return std::string{buffer.data()};
     }
 }

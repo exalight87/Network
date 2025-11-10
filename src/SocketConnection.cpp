@@ -1,5 +1,8 @@
 #include <SocketConnection.hpp>
+#include <array>
 #include <format>
+#include <string>
+#include <vector>
 #include <WS2tcpip.h>
 
 namespace
@@ -16,8 +19,8 @@ namespace
 
 Result<void, DefaultErrorType> SocketConnection::receive(std::vector<char>& data)
 {
-    unsigned long l;
-    while (ioctlsocket(m_handle, FIONREAD, &l) == 0 && l != 0)
+    unsigned long pendingBytes{};
+    while (ioctlsocket(m_handle, FIONREAD, &pendingBytes) == 0 && pendingBytes != 0)
     {
         int bytesReceived = recv(m_handle, m_recvBuffer.data(), static_cast<int>(m_recvBuffer.size()), 0);
 
@@ -29,9 +32,10 @@ Result<void, DefaultErrorType> SocketConnection::receive(std::vector<char>& data
         {
             return {};
         }
-        else if (bytesReceived != 0)
+        else
         {
-            return Error(DefaultErrorType::NotSpecialized, std::format("Fail to disconnect the socket : [{}] {}", bytesReceived, WSAGetLastError()));
+            const auto wsaError = WSAGetLastError();
+            return Error(DefaultErrorType::NotSpecialized, std::format("Fail to receive data : [{}] {}", bytesReceived, wsaError));
         }
     }
     return {};
@@ -53,7 +57,7 @@ Result<void, DefaultErrorType> SocketConnection::send(std::span<const char> data
 
 Result<void, DefaultErrorType> SocketConnection::disconnect()
 {
-    if (m_handle == NULL)
+    if (m_handle == INVALID_SOCKET)
     {
         return {};
     }
@@ -63,7 +67,7 @@ Result<void, DefaultErrorType> SocketConnection::disconnect()
         return Error(DefaultErrorType::NotSpecialized, std::format("Fail to disconnect the socket : [{}] {}", error, WSAGetLastError()));
     }
 
-    m_handle = NULL;
+    m_handle = INVALID_SOCKET;
     return {};
 }
 
@@ -90,12 +94,12 @@ namespace
     
     Result<std::string, DefaultErrorType> _GetIpFromSockaddr(const SOCKADDR_IN* addr)
     {
-        std::string ip;
-        ip.reserve(addr->sin_family == AF_INET ? 16 : 48);
-        if (inet_ntop(addr->sin_family, &addr->sin_addr, ip.data(), ip.capacity()) == NULL)
+        constexpr std::size_t bufferSize = INET6_ADDRSTRLEN;
+        std::array<char, bufferSize> buffer{};
+        if (!inet_ntop(addr->sin_family, reinterpret_cast<const void*>(&addr->sin_addr), buffer.data(), static_cast<socklen_t>(buffer.size())))
         {
             return Error(DefaultErrorType::NotSpecialized, std::format("Fail to get ip : {}", WSAGetLastError()));
         }
-        return ip;
+        return std::string{buffer.data()};
     }
 }

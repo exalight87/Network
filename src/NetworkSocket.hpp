@@ -5,11 +5,13 @@
 #include <span>
 #include <array>
 #include <Result.hpp>
-#include <thread>
+#include <cstdint>
 #include <functional>
-#include <ConnectionPool.hpp>
+#include <memory>
+#include <thread>
 
 struct HttpRoute;
+class ConnectionPool;
 
 class NetworkSocket
 {
@@ -21,20 +23,20 @@ public:
     NetworkSocket& operator=(NetworkSocket&&) noexcept = default;
     ~NetworkSocket();
 
-    void ip( std::string_view ip );
-    Result<std::string, DefaultErrorType> ip() const;
-    void port( uint32_t port );
-    Result<uint32_t, DefaultErrorType> port() const;
+    void ip(std::string_view ip);
+    [[nodiscard]] Result<std::string, DefaultErrorType> ip() const;
+    void port(uint32_t port);
+    [[nodiscard]] Result<uint32_t, DefaultErrorType> port() const;
 
     // Blocking infinite loop responsible for handling connections
     [[nodiscard]] Result<void, DefaultErrorType> start();
     Result<void, DefaultErrorType> stop();
 
 protected:
-    bool m_listen();
+    Result<void, DefaultErrorType> m_listen();
     Result<void, DefaultErrorType> m_connect();
 
-    SOCKADDR_IN m_sourceData;
-    SOCKET m_handle;
+    SOCKADDR_IN m_sourceData{};
+    SOCKET m_handle{INVALID_SOCKET};
     std::unique_ptr<ConnectionPool> m_pool;
 };

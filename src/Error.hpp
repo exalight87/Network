@@ -26,7 +26,7 @@ struct Error {
 	std::source_location location;
 
 	Error(ErrorType t, const std::string& msg, std::source_location loc = std::source_location::current()) : type(t), message(msg), location(loc) {};
-	constexpr std::string GetFormatedError();
+        [[nodiscard]] constexpr std::string GetFormatedError();
 };
 
 template<class ErrorType>

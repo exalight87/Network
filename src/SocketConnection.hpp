@@ -2,8 +2,12 @@
 #include <winsock2.h>
 #pragma comment(lib, "ws2_32.lib")
 #include <Result.hpp>
+#include <array>
 #include <chrono>
+#include <span>
 #include <thread>
+#include <utility>
+#include <vector>
 
 class NetworkSocket;
 
@@ -15,7 +19,7 @@ public:
     SocketConnection(const SocketConnection&) = delete;
     SocketConnection& operator=(const SocketConnection&) = delete;
     SocketConnection(SocketConnection&& other) noexcept
-        : m_handle(std::exchange(other.m_handle, NULL)),
+        : m_handle(std::exchange(other.m_handle, INVALID_SOCKET)),
         m_nbRequest(std::exchange(other.m_nbRequest, 0)),
         m_clientData(std::exchange(other.m_clientData, SOCKADDR_IN{})) {};
     SocketConnection& operator=(SocketConnection&& other) noexcept
@@ -29,12 +33,12 @@ public:
 
     [[nodiscard]] Result<void, DefaultErrorType> receive(std::vector<char>& data);
     [[nodiscard]] Result<void, DefaultErrorType> send(std::span<const char> data);
-    Result<void, DefaultErrorType> disconnect();
+    [[nodiscard]] Result<void, DefaultErrorType> disconnect();
     ~SocketConnection() { disconnect(); };
 
-    Result<std::string, DefaultErrorType> ip() const;
-    Result<uint32_t, DefaultErrorType> port() const;
-    constexpr SOCKET handle() const { return m_handle; };
+    [[nodiscard]] Result<std::string, DefaultErrorType> ip() const;
+    [[nodiscard]] Result<uint32_t, DefaultErrorType> port() const;
+    [[nodiscard]] constexpr SOCKET handle() const { return m_handle; };
 
     constexpr auto timeout() const {
         using namespace std::chrono_literals;
@@ -49,12 +53,12 @@ public:
         return m_nbRequest;
     };
 
-    constexpr bool isClosed() const
+    [[nodiscard]] constexpr bool isClosed() const
     {
-        return m_handle == NULL;
+        return m_handle == INVALID_SOCKET;
     }
 
-    constexpr bool closeRequested() const
+    [[nodiscard]] constexpr bool closeRequested() const
     {
         return m_closeRequested;
     }
@@ -68,9 +72,9 @@ private:
     SocketConnection(SOCKET handle, SOCKADDR_IN clientData);
 
 private:
-    SOCKADDR_IN m_clientData;
-    SOCKET m_handle;
-    bool m_closeRequested;
-    std::array<char, 512> m_recvBuffer;
-    std::size_t m_nbRequest;
+    SOCKADDR_IN m_clientData{};
+    SOCKET m_handle{INVALID_SOCKET};
+    bool m_closeRequested{false};
+    std::array<char, 512> m_recvBuffer{};
+    std::size_t m_nbRequest{0};
 };

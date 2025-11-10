@@ -129,7 +129,7 @@ int main(int argc, char **argv)
 
     if (auto rServer = server.start(); !rServer)
     {
-        std::cout << rServer.Error().GetFormatedError();
+        std::cout << rServer.error().GetFormatedError();
     }
 
     return 0;

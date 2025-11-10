@@ -1,11 +1,13 @@
 #pragma once
-#include <thread>
-#include <utility>
 #include <functional>
+#include <memory>
+#include <mutex>
 #include <stop_token>
 #include <thread>
+#include <utility>
+#include <vector>
+
 #include <SocketConnection.hpp>
-#include <mutex>
 
 class NetworkSocket;
 
@@ -14,15 +16,16 @@ class ConnectionPool
     friend NetworkSocket;
 
 public:
-    ConnectionPool(std::function< void(std::stop_token, std::shared_ptr<SocketConnection>) > callable);
-    std::size_t size() const { 
+    explicit ConnectionPool(std::function<void(std::stop_token, std::shared_ptr<SocketConnection>)> callable);
+    [[nodiscard]] std::size_t size() const {
         std::lock_guard<std::mutex> lock(m_mutex);
-        return m_connections.size(); 
-    };
+        return m_connections.size();
+    }
     void stop();
 
 private:
     void m_push(SocketConnection&& connection);
+    void cleanupClosedConnections();
 
 private:
     mutable std::mutex m_mutex;

@@ -1,5 +1,6 @@
 #include "HttpServer.hpp"
 #include <iostream>
+#include <string>
 #include <HttpRoute.hpp>
 #include <chrono>
 #include <SocketConnection.hpp>
@@ -39,7 +40,7 @@ Result<void, HttpServerError> HttpServer::start()
 
                     if (rRequest)
                     {
-                        request = std::move(rRequest).Data();
+                        request = std::move(rRequest).value();
 
                         if (request.headers["Connection"] == "close")
                         {
@@ -47,7 +48,7 @@ Result<void, HttpServerError> HttpServer::start()
                             auto result = connection->send(HttpResponse::CLOSE_CONNECTION.format());
                             if (!result)
                             {
-                                std::cerr << result.Error().GetFormatedError() << "\n";
+                                std::cerr << result.error().GetFormatedError() << "\n";
                             }
                             break;
                         }
@@ -58,7 +59,8 @@ Result<void, HttpServerError> HttpServer::start()
                             std::cerr << "  Can't get ip from client connection\n";
                             // break;
                         }
-                        std::cout << std::format("  Request from [ {} ] on : {}\n", rCLientIp.DataOr("Unknown").c_str(), request.url.path);
+                        const auto clientIp = rCLientIp ? rCLientIp.value() : std::string{"Unknown"};
+                        std::cout << std::format("  Request from [ {} ] on : {}\n", clientIp, request.url.path);
 
 
                         auto cleanedPath = request.url.path.substr(1);
@@ -86,7 +88,7 @@ Result<void, HttpServerError> HttpServer::start()
                     }
                 }
 
-                if (!rRequest && rRequest.Error().type == HttpServerError::CloseRequested)
+                if (!rRequest && rRequest.error().type == HttpServerError::CloseRequested)
                 {
                     connection->requestClose();
                     response = HttpResponse::CLOSE_CONNECTION;
@@ -101,7 +103,7 @@ Result<void, HttpServerError> HttpServer::start()
                 auto rPort = port();
                 if (rIp && rPort)
                 {
-                    response.headers["Host"] = std::format("{}:{}", rIp.Data().c_str(), rPort.Data());
+                    response.headers["Host"] = std::format("{}:{}", rIp.value(), rPort.value());
                 }
                 response.headers["Handle"] = std::to_string(connection->handle());
 
@@ -114,7 +116,7 @@ Result<void, HttpServerError> HttpServer::start()
 
                 if (!result)
                 {
-                    std::cerr << result.Error().GetFormatedError() << "\n";
+                    std::cerr << result.error().GetFormatedError() << "\n";
                     return;
                 }
             }
@@ -124,7 +126,7 @@ Result<void, HttpServerError> HttpServer::start()
     auto rSocketStart = NetworkSocket::start();
     if (!rSocketStart)
     {
-        return Error(HttpServerError::NotSpecialized, "Fail to start socket : " + rSocketStart.Error().GetFormatedError());
+        return Error(HttpServerError::NotSpecialized, "Fail to start socket : " + rSocketStart.error().GetFormatedError());
     }
 
     return {};
@@ -158,7 +160,7 @@ namespace {
             auto result = connection->receive(data);
             if (!result)
             {
-                return Error(HttpServerError::NotSpecialized, result.Error().GetFormatedError());
+                return Error(HttpServerError::NotSpecialized, result.error().GetFormatedError());
             }
         }
 
