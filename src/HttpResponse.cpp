@@ -3,21 +3,22 @@
 #include <fstream>
 #include <sstream>
 #include <cstdlib>
+#include <filesystem>
 
 namespace {
     std::string_view _GetContentType(std::string_view filename);
-    std::string ROOT_FOLDER = []() {
+    std::string_view _ReasonPhrase(uint32_t code);
+    bool _LoadFileUnder(HttpResponse& response, const std::filesystem::path& baseDir, const std::filesystem::path& filename);
+    std::filesystem::path _RootFolder()
+    {
         const char* envPath = std::getenv("SERVER_ROOT");
         if (envPath)
         {
-            return std::string(envPath);
+            return envPath;
         }
-#ifdef _WIN32
-        return std::string("E:/projet/test_curl");
-#else
-        return std::string(".");
-#endif
-    }();
+        return std::filesystem::current_path();
+    }
+    bool _IsPathInside(const std::filesystem::path& root, const std::filesystem::path& path);
 }
 
 HttpResponse HttpResponse::CODE_404 = {
@@ -37,6 +38,7 @@ HttpResponse HttpResponse::CLOSE_CONNECTION = {
         {"Connection", "close"}
     },
     .code = 200,
+    .body = "",
 };
 
 HttpResponse HttpResponse::OPEN_CONNECTION = {
@@ -50,7 +52,7 @@ HttpResponse HttpResponse::OPEN_CONNECTION = {
 template<class... Ts> struct overload : Ts... { using Ts::operator()...; };
 template<class... Ts> overload(Ts...) -> overload<Ts...>; // line not needed in C++20...
 
-std::string HttpResponse::format()  const
+std::string HttpResponse::format(bool includeBody) const
 {
     std::string pageStr;
     std::visit(overload{
@@ -68,7 +70,7 @@ std::string HttpResponse::format()  const
     std::string response;
     response.reserve(headerSize + bodySize + 64);
 
-    response = std::format("HTTP/1.1 {}\r\n", code);
+    response = std::format("HTTP/1.1 {} {}\r\n", code, _ReasonPhrase(code));
 
     for (const auto& [key, value] : headers)
     {
@@ -76,25 +78,22 @@ std::string HttpResponse::format()  const
     }
 
     response += std::format("Content-Length: {}\r\n\r\n", bodySize);
-    response += pageStr;
+    if (includeBody)
+    {
+        response += pageStr;
+    }
 
     return response;
 }
 
 bool HttpResponse::loadFile(const std::string& filename)
 {
-    std::ifstream f(ROOT_FOLDER + '/' + filename, std::ios::binary);
-    if (!f) {
-        return false;
-    }
+    return _LoadFileUnder(*this, ".", filename);
+}
 
-    headers["Content-Type"] = _GetContentType( filename );
-
-    std::ostringstream oss;
-    oss << f.rdbuf();
-    body = oss.str();
-
-    return true;
+bool HttpResponse::loadFileFrom(const std::string& baseDir, const std::string& filename)
+{
+    return _LoadFileUnder(*this, baseDir, filename);
 }
 
 namespace {
@@ -136,5 +135,80 @@ namespace {
         }
 
         return "application/octet-stream";
+    }
+
+    bool _LoadFileUnder(HttpResponse& response, const std::filesystem::path& baseDir, const std::filesystem::path& filename)
+    {
+        namespace fs = std::filesystem;
+
+        std::error_code error;
+        const auto serverRoot = fs::weakly_canonical(_RootFolder(), error);
+        if (error)
+        {
+            return false;
+        }
+
+        const auto root = fs::weakly_canonical(serverRoot / baseDir, error);
+        if (error || !_IsPathInside(serverRoot, root))
+        {
+            return false;
+        }
+
+        fs::path requestedPath(filename);
+        if (requestedPath.is_absolute())
+        {
+            requestedPath = requestedPath.relative_path();
+        }
+
+        const auto finalPath = fs::weakly_canonical(root / requestedPath.lexically_normal(), error);
+        if (error || !_IsPathInside(root, finalPath))
+        {
+            return false;
+        }
+
+        std::ifstream f(finalPath, std::ios::binary);
+        if (!f) {
+            return false;
+        }
+
+        response.headers["Content-Type"] = _GetContentType(finalPath.string());
+
+        std::ostringstream oss;
+        oss << f.rdbuf();
+        response.body = oss.str();
+
+        return true;
+    }
+
+    bool _IsPathInside(const std::filesystem::path& root, const std::filesystem::path& path)
+    {
+        auto rootIt = root.begin();
+        auto pathIt = path.begin();
+
+        for (; rootIt != root.end(); ++rootIt, ++pathIt)
+        {
+            if (pathIt == path.end() || *rootIt != *pathIt)
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    std::string_view _ReasonPhrase(uint32_t code)
+    {
+        switch (code)
+        {
+        case 200: return "OK";
+        case 201: return "Created";
+        case 204: return "No Content";
+        case 400: return "Bad Request";
+        case 403: return "Forbidden";
+        case 404: return "Not Found";
+        case 405: return "Method Not Allowed";
+        case 500: return "Internal Server Error";
+        default: return "";
+        }
     }
 }

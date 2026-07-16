@@ -10,12 +10,20 @@ add_requires("libcurl", "gtest")
 target("test_curl")
     set_kind("static")
     add_files("src/*.cpp")
+    remove_files("src/main.cpp")
     add_includedirs("src")
     add_headerfiles("src/*.hpp", {prefixdir = "include"})
     add_packages("libcurl")
     add_defines("_CRT_SECURE_NO_WARNINGS")
 
 -- Add test target
+target("core_unit_tests")
+    set_kind("binary")
+    add_files("tests/core_unit_test.cpp")
+    add_files("src/HttpRequest.cpp", "src/HttpResponse.cpp", "src/HttpPage.cpp", "src/HttpRoute.cpp")
+    add_includedirs("tests")
+    add_includedirs("src")
+
 target("server_tests")
     set_kind("binary")
     add_files("tests/server_test.cpp")
@@ -24,10 +32,6 @@ target("server_tests")
     
     add_includedirs("tests")
     add_includedirs("src")
-    
-    after_build(function (target)
-        os.exec(target:targetfile())
-    end)
 
 target("performance_tests")
     set_kind("binary")
@@ -42,10 +46,6 @@ target("performance_tests")
         add_syslinks("kernel32")
     end
 
-    after_build(function (target)
-        os.exec(target:targetfile())
-    end)
-
 target("robustness_tests")
     set_kind("binary")
     add_files("tests/robustness_test.cpp")
@@ -59,10 +59,6 @@ target("robustness_tests")
         add_syslinks("kernel32")
     end
 
-    after_build(function (target)
-        os.exec(target:targetfile())
-    end)
-
 target("route_duplicate_tests")
     set_kind("binary")
     add_files("tests/route_duplicate_test.cpp")
@@ -75,10 +71,6 @@ target("route_duplicate_tests")
     if is_plat("windows") then
         add_syslinks("kernel32")
     end
-
-    after_build(function (target)
-        os.exec(target:targetfile())
-    end)
 
 target("http_server")
     set_kind("binary")
@@ -127,6 +119,26 @@ target("example_api_server")
         add_syslinks("pthread")
     end
     add_defines("_CRT_SECURE_NO_WARNINGS")
+
+task("test")
+    set_menu {
+        usage = "xmake test",
+        description = "Build and run all test binaries"
+    }
+    on_run(function ()
+        local targets = {
+            "core_unit_tests",
+            "route_duplicate_tests",
+            "server_tests",
+            "performance_tests",
+            "robustness_tests"
+        }
+
+        for _, target in ipairs(targets) do
+            os.exec("xmake build " .. target)
+            os.exec("xmake run " .. target)
+        end
+    end)
 
 --
 -- If you want to known more usage about xmake, please see https://xmake.io
@@ -196,4 +208,3 @@ target("example_api_server")
 --
 -- @endcode
 --
-

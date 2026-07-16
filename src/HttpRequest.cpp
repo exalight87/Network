@@ -4,25 +4,37 @@
 #include <string_view>
 #include <unordered_map>
 #include <ranges>
+#include <charconv>
+#include <sstream>
+#include <cctype>
+#include <algorithm>
 
 namespace
 {
 	HttpRequest::Methods _GetMethodFromString(std::string_view methodStr);
 	URL::Protocols _GetProtocolFromString(std::string_view protocoldStr);
 	std::string _UrlDecode(std::string_view encoded);
+	std::string _Trim(std::string_view value);
+	std::string _ToUpper(std::string_view value);
 }
 
 void URL::parse(std::string_view url)
 {
+	protocol = Protocols::UNKNOWN;
+	domain.clear();
+	path.clear();
+	queryParams.clear();
+
 	// absolute uri
 	if (!url.starts_with('/'))
 	{
 		// PROTOCOL
 		std::string_view domainDelim = "://";
-		auto protocolSize = url.find_first_of(domainDelim);
+		auto protocolSize = url.find(domainDelim);
 		if (protocolSize == std::string::npos)
 		{
-			// TODO handle no protocol
+			path = url.empty() ? "/" : std::string(url);
+			return;
 		}
 
 		protocol = _GetProtocolFromString( url.substr(0, protocolSize) );
@@ -30,10 +42,12 @@ void URL::parse(std::string_view url)
 
 		// DOMAIN
 		std::string_view pathDelim = "/";
-		auto domainSize = url.find_first_of(pathDelim);
+		auto domainSize = url.find(pathDelim);
 		if (domainSize == std::string::npos)
 		{
-			// TODO handle no domain
+			domain = std::string(url);
+			path = "/";
+			return;
 		}
 
 		domain = url.substr(0, domainSize);
@@ -51,95 +65,108 @@ void URL::parse(std::string_view url)
 	}
 
 	path = url.substr(0, pathSize);
+	if (path.empty())
+	{
+		path = "/";
+	}
 	url.remove_prefix(pathSize + (isQueryArgs ? queryArgsDelim.size() : 0));
 
-	// QUERRY PARAMS
-	for (auto queryArg : std::views::split(url, '&') | std::ranges::views::transform([](auto&& rng) {
-		return std::string_view(&*rng.begin(), std::ranges::distance(rng));
-		}))
+	if (!isQueryArgs || url.empty())
 	{
-		auto splitedQueryArg = std::views::split(queryArg, '=') | std::ranges::views::transform([](auto&& rng) {
-				return std::string(&*rng.begin(), std::ranges::distance(rng));
-			});
-		auto splitedQueryArgIt = splitedQueryArg.begin();
-
-		std::pair<std::string, std::string> paramsPair = std::make_pair(_UrlDecode(*splitedQueryArgIt), "");
-
-		// handle query params without value
-		if (!(*++splitedQueryArgIt).empty())
-		{
-			paramsPair.second = _UrlDecode(*splitedQueryArgIt);
-		}
-
-		queryParams.insert(paramsPair);
+		return;
 	}
 
+	// QUERY PARAMS
+	std::size_t start = 0;
+	while (start <= url.size())
+	{
+		const auto end = url.find('&', start);
+		const auto queryArg = url.substr(start, end == std::string_view::npos ? std::string_view::npos : end - start);
+		if (!queryArg.empty())
+		{
+			const auto equalPos = queryArg.find('=');
+			const auto key = equalPos == std::string_view::npos ? queryArg : queryArg.substr(0, equalPos);
+			const auto value = equalPos == std::string_view::npos ? std::string_view{} : queryArg.substr(equalPos + 1);
+
+			queryParams.emplace(_UrlDecode(key), _UrlDecode(value));
+		}
+
+		if (end == std::string_view::npos)
+		{
+			break;
+		}
+		start = end + 1;
+	}
 }
 
 bool HttpRequest::parse(std::string_view request)
 {
 	using namespace std::literals;
-	auto reqByLine = std::views::split(request, "\r\n"sv);
+	method = Methods::UNKNOWN;
+	url = {};
+	httpVersion.clear();
+	headers.clear();
+	body.clear();
+	pathParams.clear();
 
-	// PARSE REQUEST-LINE
-	auto requestLine = reqByLine.front() | std::views::split(' ') | std::ranges::views::transform([](auto&& rng) {
-		return std::string_view(&*rng.begin(), std::ranges::distance(rng));
-		});
-	auto requestLineIt = requestLine.begin();
+	const auto requestLineEnd = request.find("\r\n"sv);
+	if (requestLineEnd == std::string_view::npos)
+	{
+		return false;
+	}
 
-	method = _GetMethodFromString( *requestLineIt++ );
+	std::string requestLine(request.substr(0, requestLineEnd));
+	std::istringstream requestLineStream(requestLine);
+	std::string methodStr;
+	std::string urlStr;
+	std::string versionStr;
+
+	if (!(requestLineStream >> methodStr >> urlStr >> versionStr))
+	{
+		return false;
+	}
+
+	method = _GetMethodFromString(methodStr);
 	if (method == Methods::UNKNOWN)
 	{
 		return false;
 	}
 
-	url.parse(*requestLineIt++);
-	httpVersion = std::string(*requestLineIt);
+	url.parse(urlStr);
+	httpVersion = versionStr;
+
+	const auto headersEnd = request.find("\r\n\r\n"sv);
+	if (headersEnd == std::string_view::npos)
+	{
+		return false;
+	}
 
 	// PARSE HEADERS
-	size_t headerCount = 0;
-	for (const auto& header : reqByLine | std::views::drop(1) | std::ranges::views::transform([](auto&& rng) {
-		return std::string_view(&*rng.begin(), std::ranges::distance(rng));
-		}))
+	std::size_t lineStart = requestLineEnd + 2;
+	while (lineStart < headersEnd)
 	{
-		if (header.empty() || header == "\r\n"sv)
+		const auto lineEnd = request.find("\r\n"sv, lineStart);
+		if (lineEnd == std::string_view::npos || lineEnd > headersEnd)
 		{
-			break;
-		}
-		headerCount++;
-
-		auto headerArg = std::views::split(header, ':') | std::ranges::views::transform([](auto&& rng) {
-			return std::string_view(&*rng.begin(), std::ranges::distance(rng));
-			});
-		auto headerIt = headerArg.begin();
-
-		std::pair<std::string, std::string> headerPair = std::make_pair(std::string( *headerIt ), "");
-
-		// handle query params without value
-		if (!(*++headerIt).empty())
-		{
-			// trim value
-			std::string_view value = *headerIt;
-			value.remove_prefix(std::min((*headerIt).find_first_not_of(" "), (*headerIt).size()));
-			headerPair.second = std::string(value);
+			return false;
 		}
 
-		headers.insert(headerPair);
+		const auto header = request.substr(lineStart, lineEnd - lineStart);
+		const auto separator = header.find(':');
+		if (separator == std::string_view::npos)
+		{
+			return false;
+		}
+
+		headers.emplace(std::string(header.substr(0, separator)), _Trim(header.substr(separator + 1)));
+		lineStart = lineEnd + 2;
 	}
 
 	// PARSE BODY
-	auto bodyIt = reqByLine.begin();
-	std::advance(bodyIt, 1 + headerCount + 1); // request line + headers + empty line
-	if (bodyIt != reqByLine.end())
+	const auto bodyStart = headersEnd + 4;
+	if (bodyStart < request.size())
 	{
-		auto bodyView = *bodyIt | std::views::split('\0') | std::ranges::views::transform([](auto&& rng) {
-			return std::string_view(&*rng.begin(), std::ranges::distance(rng));
-		});
-		auto bodyIt2 = bodyView.begin();
-		if (bodyIt2 != bodyView.end() && !(*bodyIt2).empty())
-		{
-			body = std::string(*bodyIt2);
-		}
+		body = std::string(request.substr(bodyStart));
 	}
 
 	return true;
@@ -149,31 +176,32 @@ namespace
 {
 	HttpRequest::Methods _GetMethodFromString(std::string_view methodStr)
 	{
-		if (methodStr == "GET")
+		const auto method = _ToUpper(methodStr);
+		if (method == "GET")
 		{
 			return HttpRequest::Methods::GET;
 		}
-		else if (methodStr == "POST")
+		else if (method == "POST")
 		{
 			return HttpRequest::Methods::POST;
 		}
-		else if (methodStr == "PUT")
+		else if (method == "PUT")
 		{
 			return HttpRequest::Methods::PUT;
 		}
-		else if (methodStr == "DELETE")
+		else if (method == "DELETE")
 		{
 			return HttpRequest::Methods::DELETE;
 		}
-		else if (methodStr == "PATCH")
+		else if (method == "PATCH")
 		{
 			return HttpRequest::Methods::PATCH;
 		}
-		else if (methodStr == "HEAD")
+		else if (method == "HEAD")
 		{
 			return HttpRequest::Methods::HEAD;
 		}
-		else if (methodStr == "OPTIONS")
+		else if (method == "OPTIONS")
 		{
 			return HttpRequest::Methods::OPTIONS;
 		}
@@ -183,11 +211,12 @@ namespace
 
 	URL::Protocols _GetProtocolFromString(std::string_view protocoldStr)
 	{
-		if (protocoldStr == "HTTP")
+		const auto protocol = _ToUpper(protocoldStr);
+		if (protocol == "HTTP")
 		{
 			return URL::Protocols::HTTP;
 		}
-		else if (protocoldStr == "HTTPS")
+		else if (protocol == "HTTPS")
 		{
 			return URL::Protocols::HTTPS;
 		}
@@ -226,6 +255,26 @@ namespace
 			}
 		}
 
+		return result;
+	}
+
+	std::string _Trim(std::string_view value)
+	{
+		const auto first = value.find_first_not_of(" \t");
+		if (first == std::string_view::npos)
+		{
+			return {};
+		}
+		const auto last = value.find_last_not_of(" \t");
+		return std::string(value.substr(first, last - first + 1));
+	}
+
+	std::string _ToUpper(std::string_view value)
+	{
+		std::string result(value);
+		std::ranges::transform(result, result.begin(), [](unsigned char c) {
+			return static_cast<char>(std::toupper(c));
+		});
 		return result;
 	}
 

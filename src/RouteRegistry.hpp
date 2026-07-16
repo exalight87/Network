@@ -8,6 +8,8 @@
 class RouteRegistry
 {
 public:
+    RouteRegistry() = default;
+
     static RouteRegistry& instance()
     {
         static RouteRegistry inst;
@@ -57,8 +59,6 @@ public:
     }
 
 private:
-    RouteRegistry() = default;
-    
     static std::string makeKey(std::string_view path, HttpRequest::Methods method)
     {
         return std::string(path) + "_" + std::to_string(static_cast<int>(method));

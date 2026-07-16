@@ -11,11 +11,18 @@
 
 struct HttpRoute
 {
+	enum class MatchResult
+	{
+		NoMatch,
+		Matched,
+		MethodNotAllowed
+	};
+
 	// return true if the route succeed
 	template < typename Range >
-	bool operator()(Range currentRoute, HttpRequest& request, HttpResponse& response);
+	MatchResult operator()(Range currentRoute, HttpRequest& request, HttpResponse& response);
 
-	std::string_view route;
+	std::string route;
 	std::vector<HttpRequest::Methods> allowedMethods;
 	std::optional< std::function< bool(const HttpRequest& request, HttpResponse& response) > > callable;
 	std::vector<HttpRoute> subRoutes;
@@ -28,10 +35,11 @@ struct HttpRoute
 	bool hasParams = false;
 
 	void parseParams();
+	std::string allowedMethodsHeader() const;
 };
 
 template <typename Range>
-inline bool HttpRoute::operator()(Range currentRoute_, HttpRequest& request, HttpResponse& response)
+inline HttpRoute::MatchResult HttpRoute::operator()(Range currentRoute_, HttpRequest& request, HttpResponse& response)
 {
 	// https://stackoverflow.com/questions/61867635/recursive-application-of-c20-range-adaptor-causes-a-compile-time-infinite-loop#:~:text=By%20creating%20span%2C%20we%20make%20the%20typename%20of%20the%20variable%20simply%20span%20instead%20of%20deeply%20nested%20typenames%20as%20shown%20in%20the%20accepted%20answer.
 	auto currentRoute = std::ranges::subrange(currentRoute_);
@@ -51,38 +59,42 @@ inline bool HttpRoute::operator()(Range currentRoute_, HttpRequest& request, Htt
 			if (!allowedMethods.empty() && std::find(allowedMethods.begin(), allowedMethods.end(), request.method) == allowedMethods.end())
 			{
 				response.code = 405;
-				return false;
+				response.headers["Allow"] = allowedMethodsHeader();
+				return MatchResult::MethodNotAllowed;
 			}
 
 			if (callable && response.empty())
 			{
-				return callable.value()(request, response);
+				return callable.value()(request, response) ? MatchResult::Matched : MatchResult::NoMatch;
 			}
 		}
-		return false;
+		return MatchResult::NoMatch;
 	}
 
 	// Check if route has parameters
 	bool routeHasParams = !route.empty() && route.find('{') != std::string_view::npos;
-	std::string_view routeJoin;
+	std::string routeJoin;
 	
 	if (routeHasParams) {
 		parseParams();
 		
 		// Join enough segments to match the route
-		std::size_t segmentsToJoin = nbSlashes + 1;
-		if (std::ranges::distance(currentRoute) >= static_cast<long>(segmentsToJoin)) {
-			auto joinedRoute = currentRoute | std::views::take(segmentsToJoin) | std::views::join_with('/');
-			routeJoin = std::string_view(&(*joinedRoute.begin()), std::ranges::distance(joinedRoute));
-		} else {
-			routeJoin = std::string_view(currentRoute.front());
+			std::size_t segmentsToJoin = nbSlashes + 1;
+			if (std::ranges::distance(currentRoute) >= static_cast<long>(segmentsToJoin)) {
+				auto joinedRoute = currentRoute | std::views::take(segmentsToJoin) | std::views::join_with('/');
+				for (char c : joinedRoute) {
+					routeJoin.push_back(c);
+				}
+			} else {
+			auto front = *currentRoute.begin();
+			routeJoin = std::string(std::ranges::begin(front), std::ranges::end(front));
 		}
 		
 		// Try to match
 		std::smatch match;
 		std::string matchStr(routeJoin);
 		if (!std::regex_match(matchStr, match, paramRegex)) {
-			return false;
+			return MatchResult::NoMatch;
 		}
 		
 		// Extract parameters into request
@@ -92,16 +104,20 @@ inline bool HttpRoute::operator()(Range currentRoute_, HttpRequest& request, Htt
 	}
 	else
 	{
-		routeJoin = std::string_view(currentRoute.front());
-		if (nbSlashes > 1)
-		{
-			auto joinedRoute = currentRoute | std::views::take(nbSlashes + 1) | std::views::join_with('/');
-			routeJoin = std::string_view(&(*joinedRoute.begin()), std::ranges::distance(joinedRoute));
-		}
+		auto front = *currentRoute.begin();
+		routeJoin = std::string(std::ranges::begin(front), std::ranges::end(front));
+			if (nbSlashes > 1)
+			{
+				auto joinedRoute = currentRoute | std::views::take(nbSlashes + 1) | std::views::join_with('/');
+				routeJoin.clear();
+				for (char c : joinedRoute) {
+					routeJoin.push_back(c);
+				}
+			}
 
 		if (routeJoin != route)
 		{
-			return false;
+			return MatchResult::NoMatch;
 		}
 	}
 
@@ -110,25 +126,27 @@ inline bool HttpRoute::operator()(Range currentRoute_, HttpRequest& request, Htt
 	if (!allowedMethods.empty() && std::find(allowedMethods.begin(), allowedMethods.end(), request.method) == allowedMethods.end())
 	{
 		response.code = 405;
-		return false;
+		response.headers["Allow"] = allowedMethodsHeader();
+		return MatchResult::MethodNotAllowed;
 	}
 
 	auto routeToCover = currentRoute | std::views::drop(nbSlashes + 1);
 
 	for (auto& subRoute : subRoutes)
 	{
-		if( subRoute(routeToCover, request, response) )
+		auto subRouteResult = subRoute(routeToCover, request, response);
+		if (subRouteResult != MatchResult::NoMatch)
 		{
-			return true;
+			return subRouteResult;
 		}
 	}
 
 	if ( callable && response.empty() )
 	{
-		return callable.value()(request, response);
+		return callable.value()(request, response) ? MatchResult::Matched : MatchResult::NoMatch;
 	}
 
-	return false;
+	return MatchResult::NoMatch;
 }
 
 inline void HttpRoute::parseParams()
@@ -154,4 +172,32 @@ inline void HttpRoute::parseParams()
 		}
 		paramRegex = std::regex(regexStr);
 	}
+}
+
+inline std::string HttpRoute::allowedMethodsHeader() const
+{
+	auto methodToString = [](HttpRequest::Methods method) -> std::string_view {
+		switch (method)
+		{
+		case HttpRequest::GET: return "GET";
+		case HttpRequest::POST: return "POST";
+		case HttpRequest::PUT: return "PUT";
+		case HttpRequest::DELETE: return "DELETE";
+		case HttpRequest::PATCH: return "PATCH";
+		case HttpRequest::HEAD: return "HEAD";
+		case HttpRequest::OPTIONS: return "OPTIONS";
+		default: return "UNKNOWN";
+		}
+	};
+
+	std::string result;
+	for (auto method : allowedMethods)
+	{
+		if (!result.empty())
+		{
+			result += ", ";
+		}
+		result += methodToString(method);
+	}
+	return result;
 }

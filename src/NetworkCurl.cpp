@@ -115,13 +115,12 @@ NetworkCurl::NetworkCurl(/* args */)
     {
         throw std::runtime_error("Impossible to init curl");
     }
-
-    curl_easy_setopt(m_curl, CURLOPT_WRITEFUNCTION, &NetworkCurl::m_FillNetworkResponse);
 }
 
 NetworkCurl::~NetworkCurl()
 {
     curl_easy_cleanup(m_curl);
+    curl_global_cleanup();
 }
 
 void NetworkCurl::EnableDebug()
@@ -160,8 +159,12 @@ NetworkResponse NetworkCurl::Get(std::string_view URL)
 {
     std::lock_guard<std::mutex> lock(m_mutex);
     NetworkResponse response;
+    const std::string url(URL);
+    curl_easy_reset(m_curl);
+    curl_easy_setopt(m_curl, CURLOPT_WRITEFUNCTION, &NetworkCurl::m_FillNetworkResponse);
+    curl_easy_setopt(m_curl, CURLOPT_HTTPGET, 1L);
     curl_easy_setopt(m_curl, CURLOPT_WRITEDATA, (void *)&response);
-    curl_easy_setopt(m_curl, CURLOPT_URL, URL.data());
+    curl_easy_setopt(m_curl, CURLOPT_URL, url.c_str());
     CURLcode res = curl_easy_perform(m_curl);
 
     curl_easy_getinfo(m_curl, CURLINFO_RESPONSE_CODE, &response.code);
@@ -201,8 +204,11 @@ NetworkResponse NetworkCurl::Post(std::string_view URL, std::string_view payload
 {
     std::lock_guard<std::mutex> lock(m_mutex);
     NetworkResponse response;
+    const std::string url(URL);
+    curl_easy_reset(m_curl);
+    curl_easy_setopt(m_curl, CURLOPT_WRITEFUNCTION, &NetworkCurl::m_FillNetworkResponse);
     curl_easy_setopt(m_curl, CURLOPT_WRITEDATA, (void *)&response);
-    curl_easy_setopt(m_curl, CURLOPT_URL, URL.data());
+    curl_easy_setopt(m_curl, CURLOPT_URL, url.c_str());
     curl_easy_setopt(m_curl, CURLOPT_POST, 1L);
     curl_easy_setopt(m_curl, CURLOPT_POSTFIELDS, payload.data());
     curl_easy_setopt(m_curl, CURLOPT_POSTFIELDSIZE, payload.size());

@@ -43,6 +43,7 @@ public:
 
     // Blocking infinite loop responsible for handling connections
     [[nodiscard]] Result<void, DefaultErrorType> start();
+    [[nodiscard]] Result<void, DefaultErrorType> startAsync();
     Result<void, DefaultErrorType> stop();
 
 protected:
@@ -58,4 +59,6 @@ protected:
     std::unique_ptr<ConnectionPool> m_pool;
     uint32_t m_maxConnections = 1000;
     std::atomic<uint32_t> m_currentConnections = 0;
+    std::atomic<bool> m_running = false;
+    std::jthread m_serverThread;
 };

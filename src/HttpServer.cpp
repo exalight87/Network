@@ -7,6 +7,10 @@
 #include <ScopeGuard.hpp>
 #include <Http2.hpp>
 #include <cstring>
+#include <charconv>
+#include <optional>
+#include <string_view>
+#include <cctype>
 
 namespace
 {
@@ -14,17 +18,22 @@ namespace
     bool _ShouldKeepAlive(const HttpRequest& request);
     bool _IsHttp2Connection(const std::vector<char>& data);
     void _HandleHttp2Connection(std::shared_ptr<SocketConnection> connection, const std::vector<char>& initialData);
+    std::optional<std::size_t> _ExpectedRequestSize(std::span<const char> data);
+    bool _IEquals(std::string_view lhs, std::string_view rhs);
+    std::string_view _Trim(std::string_view value);
+    std::optional<std::string_view> _HeaderValue(const HttpRequest& request, std::string_view name);
 }
 
 Result<void, HttpServerError> HttpServer::start()
 {
-    if (m_autoDocsEnabled)
+    if (m_autoDocsEnabled && !m_autoDocsRouteRegistered)
     {
         auto rPort = port();
         uint16_t portNum = rPort ? rPort.Data() : 8080;
         
         auto docsRoute = HttpRoute{};
         docsRoute.route = "docs";
+        docsRoute.allowedMethods = {HttpRequest::GET};
         docsRoute.description = "API Documentation";
         docsRoute.callable = [this, portNum](const HttpRequest& request, HttpResponse& response) -> bool
         {
@@ -33,7 +42,11 @@ Result<void, HttpServerError> HttpServer::start()
             response.code = 200;
             return true;
         };
-        m_routes.push_back(std::move(docsRoute));
+        if (m_routeRegistry.addRoute(docsRoute.route, HttpRequest::GET, docsRoute.route))
+        {
+            m_routes.push_back(std::move(docsRoute));
+            m_autoDocsRouteRegistered = true;
+        }
     }
     
     m_pool = std::make_unique<ConnectionPool>(
@@ -64,7 +77,7 @@ Result<void, HttpServerError> HttpServer::start()
             {
                 HttpRequest request;
                 HttpResponse response;
-                bool routeFound = false;
+                auto routeResult = HttpRoute::MatchResult::NoMatch;
                 Result<HttpRequest, HttpServerError> rRequest;
 
                 try
@@ -76,10 +89,10 @@ Result<void, HttpServerError> HttpServer::start()
                     {
                         request = std::move(rRequest).Data();
 
-                        if (request.headers["Connection"] == "close")
+                        if (auto connectionHeader = _HeaderValue(request, "Connection"); connectionHeader && _IEquals(*connectionHeader, "close"))
                         {
                             std::cout << "  Connection closed received\n";
-                            auto result = connection->send(HttpResponse::CLOSE_CONNECTION.format());
+                            auto result = connection->send(HttpResponse::CLOSE_CONNECTION.format(request.method != HttpRequest::HEAD));
                             if (!result)
                             {
                                 std::cerr << result.GetError().GetFormatedError() << "\n";
@@ -98,7 +111,8 @@ Result<void, HttpServerError> HttpServer::start()
                         auto splitedPath = std::views::split(cleanedPath, '/');
                         for (auto& route : m_routes)
                         {
-                            if ((routeFound = route(splitedPath, request, response)))
+                            routeResult = route(splitedPath, request, response);
+                            if (routeResult != HttpRoute::MatchResult::NoMatch)
                             {
                                 break;
                             }
@@ -130,7 +144,7 @@ Result<void, HttpServerError> HttpServer::start()
                     {
                         response.code = 400;
                         response.body = "Bad Request: Connection closed by client";
-                        auto result = connection->send(response.format());
+                        auto result = connection->send(response.format(request.method != HttpRequest::HEAD));
                         if (!result)
                         {
                             std::cerr << result.GetError().GetFormatedError() << "\n";
@@ -143,7 +157,7 @@ Result<void, HttpServerError> HttpServer::start()
                     response.code = 400;
                     response.body = "Bad Request: " + rRequest.GetError().GetFormatedError();
                 }
-                else if (!routeFound)
+                else if (routeResult == HttpRoute::MatchResult::NoMatch)
                 {
                     response = HttpResponse::CODE_404;
                 }
@@ -163,7 +177,7 @@ Result<void, HttpServerError> HttpServer::start()
                     response.headers["Connection"] = "close";
                 }
 
-                auto result = connection->send(response.format());
+                auto result = connection->send(response.format(request.method != HttpRequest::HEAD));
 
                 if (!result)
                 {
@@ -216,7 +230,7 @@ void HttpServer::addRoute(HttpRoute&& route)
             {
                 for (auto method : r.allowedMethods)
                 {
-                    if (!RouteRegistry::instance().addRoute(r.route, method, fullPath))
+                    if (!m_routeRegistry.addRoute(r.route, method, fullPath))
                     {
                         std::cerr << "[WARNING] Duplicate route not added: " << fullPath << "\n";
                         success = false;
@@ -226,7 +240,7 @@ void HttpServer::addRoute(HttpRoute&& route)
             }
             else
             {
-                RouteRegistry::instance().addRoute(r.route, HttpRequest::UNKNOWN, fullPath);
+                m_routeRegistry.addRoute(r.route, HttpRequest::UNKNOWN, fullPath);
             }
         }
 
@@ -247,7 +261,8 @@ void HttpServer::addRoute(HttpRoute&& route)
 void HttpServer::clearRoutes()
 {
     m_routes.clear();
-    RouteRegistry::instance().clear();
+    m_routeRegistry.clear();
+    m_autoDocsRouteRegistered = false;
 }
 
 std::size_t HttpServer::routeCount() const
@@ -271,7 +286,7 @@ namespace {
         }
         
         auto begin = std::chrono::high_resolution_clock::now();
-        while (data.empty())
+        while (true)
         {
             if ((std::chrono::high_resolution_clock::now() - begin) > connection->timeout())
             {
@@ -283,15 +298,29 @@ namespace {
                 return Error(HttpServerError::CloseRequested, std::format("Connection {} reach max number of requests of {}\n", connection->handle(), connection->maxRequest()));
             }
 
+            if (auto expectedSize = _ExpectedRequestSize(data); expectedSize && data.size() >= *expectedSize)
+            {
+                break;
+            }
+
+            auto beforeReceiveSize = data.size();
             auto result = connection->receive(data);
             if (!result)
             {
                 return Error(HttpServerError::NotSpecialized, result.GetError().GetFormatedError());
             }
+
+            if (data.size() == beforeReceiveSize && !data.empty())
+            {
+                if (auto expectedSize = _ExpectedRequestSize(data); expectedSize && data.size() >= *expectedSize)
+                {
+                    break;
+                }
+            }
         }
 
         HttpRequest request;
-        if (!request.parse(data.data()))
+        if (!request.parse(std::string_view(data.data(), data.size())))
         {
             return Error(HttpServerError::NotSpecialized, "Fail to parse http request");
         }
@@ -302,19 +331,19 @@ namespace {
     {
         std::string httpVersion = request.httpVersion;
 
-        auto headerIt = request.headers.find("Connection");
+        auto connectionHeader = _HeaderValue(request, "Connection");
         
         if (httpVersion == "HTTP/1.1") {
-            if (headerIt == request.headers.end()) {
+            if (!connectionHeader) {
                 return true;
             }
-            return headerIt->second != "close";
+            return !_IEquals(*connectionHeader, "close");
         }
         else if (httpVersion == "HTTP/1.0") {
-            if (headerIt == request.headers.end()) {
+            if (!connectionHeader) {
                 return false;
             }
-            return headerIt->second == "keep-alive";
+            return _IEquals(*connectionHeader, "keep-alive");
         }
 
         return false;
@@ -415,5 +444,94 @@ namespace {
         }
 
         return std::string(data.begin(), data.end());
+    }
+
+    std::optional<std::size_t> _ExpectedRequestSize(std::span<const char> data)
+    {
+        if (data.empty())
+        {
+            return std::nullopt;
+        }
+
+        const std::string_view request(data.data(), data.size());
+        const auto headersEnd = request.find("\r\n\r\n");
+        if (headersEnd == std::string_view::npos)
+        {
+            return std::nullopt;
+        }
+
+        std::size_t contentLength = 0;
+        std::size_t lineStart = request.find("\r\n");
+        if (lineStart == std::string_view::npos)
+        {
+            return std::nullopt;
+        }
+        lineStart += 2;
+
+        while (lineStart < headersEnd)
+        {
+            const auto lineEnd = request.find("\r\n", lineStart);
+            if (lineEnd == std::string_view::npos || lineEnd > headersEnd)
+            {
+                return std::nullopt;
+            }
+
+            const auto line = request.substr(lineStart, lineEnd - lineStart);
+            const auto separator = line.find(':');
+            if (separator != std::string_view::npos && _IEquals(_Trim(line.substr(0, separator)), "Content-Length"))
+            {
+                const auto value = _Trim(line.substr(separator + 1));
+                const auto begin = value.data();
+                const auto end = value.data() + value.size();
+                if (std::from_chars(begin, end, contentLength).ec != std::errc{})
+                {
+                    return std::nullopt;
+                }
+            }
+
+            lineStart = lineEnd + 2;
+        }
+
+        return headersEnd + 4 + contentLength;
+    }
+
+    bool _IEquals(std::string_view lhs, std::string_view rhs)
+    {
+        if (lhs.size() != rhs.size())
+        {
+            return false;
+        }
+
+        for (std::size_t i = 0; i < lhs.size(); ++i)
+        {
+            if (std::tolower(static_cast<unsigned char>(lhs[i])) != std::tolower(static_cast<unsigned char>(rhs[i])))
+            {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    std::string_view _Trim(std::string_view value)
+    {
+        const auto first = value.find_first_not_of(" \t");
+        if (first == std::string_view::npos)
+        {
+            return {};
+        }
+        const auto last = value.find_last_not_of(" \t");
+        return value.substr(first, last - first + 1);
+    }
+
+    std::optional<std::string_view> _HeaderValue(const HttpRequest& request, std::string_view name)
+    {
+        for (const auto& [key, value] : request.headers)
+        {
+            if (_IEquals(key, name))
+            {
+                return value;
+            }
+        }
+        return std::nullopt;
     }
 }

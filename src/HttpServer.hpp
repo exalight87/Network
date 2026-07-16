@@ -22,5 +22,7 @@ public:
 
 private:
     std::vector<HttpRoute> m_routes;
+    RouteRegistry m_routeRegistry;
     bool m_autoDocsEnabled = false;
+    bool m_autoDocsRouteRegistered = false;
 };

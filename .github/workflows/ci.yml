@@ -1,0 +1,37 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libcurl4-openssl-dev libgtest-dev cmake ninja-build
+
+      - name: Install xmake
+        uses: xmake-io/github-action-setup-xmake@v1
+
+      - name: Configure debug
+        run: xmake f -m debug -y
+
+      - name: Build debug
+        run: xmake build -y
+
+      - name: Run tests
+        run: xmake test
+
+      - name: Configure release
+        run: xmake f -m release -y
+
+      - name: Build release
+        run: xmake build -y

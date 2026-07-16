@@ -30,8 +30,14 @@ namespace
 
 Result<void, DefaultErrorType> NetworkSocket::start()
 {
+    if (m_running.exchange(true))
+    {
+        return Error(DefaultErrorType::AlreadyRunning, "Socket is already running");
+    }
+
     if (!port())
     {
+        m_running = false;
         return Error(DefaultErrorType::NotSpecialized, std::format("Impossible to initalized the socket because the port is not set"));
     }
 
@@ -50,6 +56,7 @@ Result<void, DefaultErrorType> NetworkSocket::start()
     m_handle = socket(AF_INET, SOCK_STREAM, 0);
     if (m_handle == INVALID_SOCKET)
     {
+        m_running = false;
 #ifdef _WIN32
         return Error(DefaultErrorType::NotSpecialized, std::format("Fail to create the socket : {}", WSAGetLastError()));
 #else
@@ -79,6 +86,7 @@ Result<void, DefaultErrorType> NetworkSocket::start()
 
     if (errorBind != 0)
     {
+        m_running = false;
 #ifdef _WIN32
         return Error(DefaultErrorType::NotSpecialized, std::format("Fail to bind on {}:{} : [{}] {}", ip().DataOr("0.0.0.0"), port().DataOr(0), errorBind, WSAGetLastError()));
 #else
@@ -89,6 +97,7 @@ Result<void, DefaultErrorType> NetworkSocket::start()
     std::cout << std::format("Server listening on {}:{}\n", ip().DataOr("0.0.0.0").c_str(), port().Data());
     if (!m_listen())
     {
+        m_running = false;
 #ifdef _WIN32
         return Error(DefaultErrorType::NotSpecialized, std::format("Fail to listen on {}:{} : [{}] {}", ip().DataOr("0.0.0.0"), port().DataOr(0), errorBind, WSAGetLastError()));
 #else
@@ -100,6 +109,7 @@ Result<void, DefaultErrorType> NetworkSocket::start()
     int epollFd = epoll_create1(0);
     if (epollFd == -1)
     {
+        m_running = false;
         return Error(DefaultErrorType::NotSpecialized, std::format("Fail to create epoll : {}", strerror(errno)));
     }
 
@@ -109,11 +119,12 @@ Result<void, DefaultErrorType> NetworkSocket::start()
     if (epoll_ctl(epollFd, EPOLL_CTL_ADD, m_handle, &event) == -1)
     {
         close(epollFd);
+        m_running = false;
         return Error(DefaultErrorType::NotSpecialized, std::format("Fail to add epoll event : {}", strerror(errno)));
     }
 
     struct epoll_event events[64];
-    while (true)
+    while (m_running)
     {
         int numEvents = epoll_wait(epollFd, events, 64, 100);
         if (numEvents == -1)
@@ -137,8 +148,9 @@ Result<void, DefaultErrorType> NetworkSocket::start()
             }
         }
     }
+    close(epollFd);
 #else
-    while (true)
+    while (m_running)
     {
         auto isConnected = m_connect();
         if (!isConnected)
@@ -152,6 +164,25 @@ Result<void, DefaultErrorType> NetworkSocket::start()
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
     }
 #endif
+
+    m_running = false;
+    return {};
+}
+
+Result<void, DefaultErrorType> NetworkSocket::startAsync()
+{
+    if (m_serverThread.joinable())
+    {
+        return Error(DefaultErrorType::AlreadyRunning, "Socket thread is already running");
+    }
+
+    m_serverThread = std::jthread([this] {
+        auto result = start();
+        if (!result)
+        {
+            std::cerr << result.GetError().GetFormatedError() << '\n';
+        }
+    });
 
     return {};
 }
@@ -169,6 +200,8 @@ uint32_t NetworkSocket::maxConnections() const
 
 Result<void, DefaultErrorType> NetworkSocket::stop()
 {
+    m_running = false;
+
     if (m_pool)
     {
         m_pool->stop();
@@ -198,7 +231,10 @@ Result<void, DefaultErrorType> NetworkSocket::stop()
 #else
     if (shutdown(m_handle, SHUT_RDWR) != 0)
     {
-        return Error(DefaultErrorType::NotSpecialized, std::format("Fail to shutdown the main socket : [{}] {}", errno, strerror(errno)));
+        if (errno != ENOTCONN)
+        {
+            return Error(DefaultErrorType::NotSpecialized, std::format("Fail to shutdown the main socket : [{}] {}", errno, strerror(errno)));
+        }
     }
 
     if (close(m_handle) != 0)
@@ -207,6 +243,12 @@ Result<void, DefaultErrorType> NetworkSocket::stop()
     }
     m_handle = INVALID_SOCKET;
 #endif
+
+    if (m_serverThread.joinable() && m_serverThread.get_id() != std::this_thread::get_id())
+    {
+        m_serverThread.request_stop();
+        m_serverThread.join();
+    }
 
     return {};
 }

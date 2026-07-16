@@ -122,7 +122,11 @@ int main(int argc, char **argv)
                      .callable = [](const HttpRequest &request, HttpResponse &response) -> bool
                      {
                          std::cout << "  Load " + request.url.path + '\n';
-                         if (!response.loadFile(request.url.path))
+                         const std::string prefix = "/resources/";
+                         const auto resourcePath = request.url.path.starts_with(prefix)
+                                                       ? request.url.path.substr(prefix.size())
+                                                       : request.url.path;
+                         if (!response.loadFileFrom("resources", resourcePath))
                          {
                              return false;
                          };

@@ -25,16 +25,16 @@ int main(int argc, char **argv)
         .route = "",
         .callable = [](const HttpRequest &request, HttpResponse &response) -> bool
         {
-            // Build file path (strip leading slash for local file system)
-            std::string filePath = "public" + request.url.path;
+            // Build file path inside the configured public root.
+            std::string filePath = request.url.path;
             
             // Default to index.html for root path
             if (request.url.path == "/" || request.url.path.empty()) {
-                filePath = "public/index.html";
+                filePath = "index.html";
             }
 
             // Try to load the file
-            if (response.loadFile(filePath)) {
+            if (response.loadFileFrom("public", filePath)) {
                 response.code = 200;
                 return true;
             }

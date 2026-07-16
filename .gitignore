@@ -2,8 +2,8 @@
 .xmake/
 build/
 vsxmake*/
+.vs/
 
 # MacOS Cache
 .DS_Store
-
 
