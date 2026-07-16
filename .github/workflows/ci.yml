@@ -39,8 +39,19 @@ jobs:
       - name: Build release
         run: xmake build -y
 
-      - name: Benchmark showcase server
-        run: node scripts/benchmark-showcase.mjs
+      - name: Configure native performance benchmark
+        run: xmake f -m release --with_gtest=y --with_curl=y -y
+
+      - name: Build native performance benchmark
+        run: xmake build -y performance_tests
+
+      - name: Benchmark C++ server
+        run: |
+          set -o pipefail
+          ./build/linux/x86_64/release/performance_tests | tee performance.log
+
+      - name: Generate benchmark report
+        run: node scripts/performance-report.mjs performance.log website/data/benchmarks.json
 
       - name: Upload benchmark report
         uses: actions/upload-artifact@v4

@@ -9,7 +9,7 @@
     "deploy": "node scripts/demo.mjs deploy",
     "test:demo": "node --test scripts/demo.test.mjs",
     "test:showcase": "xmake f -m release -y && xmake -y http_server && node --test scripts/showcase.test.mjs",
-    "benchmark:showcase": "xmake f -m release -y && xmake -y http_server && node scripts/benchmark-showcase.mjs"
+    "benchmark:server": "xmake f -m release --with_gtest=y --with_curl=y -y && xmake -y performance_tests && ./build/linux/x86_64/release/performance_tests | tee performance.log && node scripts/performance-report.mjs performance.log website/data/benchmarks.json"
   },
   "engines": {
     "node": ">=18"
