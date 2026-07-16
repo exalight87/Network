@@ -1,5 +1,8 @@
 name: CI
 
+permissions:
+  contents: write
+
 on:
   push:
     branches: [main]
@@ -35,3 +38,22 @@ jobs:
 
       - name: Build release
         run: xmake build -y
+
+      - name: Benchmark showcase server
+        run: node scripts/benchmark-showcase.mjs
+
+      - name: Upload benchmark report
+        uses: actions/upload-artifact@v4
+        with:
+          name: showcase-benchmark-${{ github.sha }}
+          path: website/data/benchmarks.json
+
+      - name: Publish benchmark results
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add website/data/benchmarks.json
+          git diff --cached --quiet && exit 0
+          git commit -m "chore(benchmark): update CI results [skip ci]"
+          git push

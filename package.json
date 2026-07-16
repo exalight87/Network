@@ -8,7 +8,8 @@
     "build": "node scripts/demo.mjs build",
     "deploy": "node scripts/demo.mjs deploy",
     "test:demo": "node --test scripts/demo.test.mjs",
-    "test:showcase": "xmake f -m release -y && xmake -y http_server && node --test scripts/showcase.test.mjs"
+    "test:showcase": "xmake f -m release -y && xmake -y http_server && node --test scripts/showcase.test.mjs",
+    "benchmark:showcase": "xmake f -m release -y && xmake -y http_server && node scripts/benchmark-showcase.mjs"
   },
   "engines": {
     "node": ">=18"
