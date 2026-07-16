@@ -16,7 +16,7 @@ struct Result
 	constexpr bool HasError() const { return error.has_value(); };
 	constexpr T&& Data() { assert(data.has_value());  return std::move(data.value()); }
 	constexpr T DataOr( T val ) { return data.value_or(val); }
-	constexpr Error<ErrorType> Error() { return error.value(); }
+	constexpr Error<ErrorType> GetError() { return error.value(); }
 
 	operator bool() { return !error.has_value(); };
 };
@@ -30,12 +30,10 @@ struct Result<void, ErrorType>
 	Result(Error<ErrorType> iError) : error(iError) {};
 
 	constexpr bool HasError() const { return error.has_value(); }
-	Error< ErrorType > Error() { return error.value(); }
+	Error< ErrorType > GetError() { return error.value(); }
 	constexpr operator bool() { return !error.has_value(); };
 };
 
-#define CheckResult(function) \
-	if(auto result = function; !result) { return result; };
+#define CheckResult(function) if(auto result = function; !result) { return result; };
 
-#define CheckResultAsError(function) \
-	if(auto result = function; !result) { return result.Error(); };
+#define CheckResultAsError(function) if(auto result = function; !result) { return result.GetError(); }

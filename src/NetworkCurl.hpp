@@ -3,12 +3,15 @@
 #include <string_view>
 #include <format>
 #include <map>
+#include <cstdint>
+#include <vector>
 
 struct NetworkResponse
 {
     std::map<std::string, std::string> headers;
     uint32_t code;
     std::vector<uint8_t> memory;
+    std::string_view body;
 };
 
 template <>
@@ -37,6 +40,7 @@ public:
     void EnableDebug();
     void DisableDebug();
     NetworkResponse Get(std::string_view URL);
+    NetworkResponse Post(std::string_view URL, std::string_view payload);
     CURL *operator*() { return m_curl; };
 
 private:

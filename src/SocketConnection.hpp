@@ -1,9 +1,21 @@
 #pragma once
+#ifdef _WIN32
 #include <winsock2.h>
 #pragma comment(lib, "ws2_32.lib")
+#else
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+#include <unistd.h>
+#include <fcntl.h>
+#define SOCKET int
+#define INVALID_SOCKET (-1)
+#endif
 #include <Result.hpp>
 #include <chrono>
 #include <thread>
+#include <utility>
+#include <array>
 
 class NetworkSocket;
 
@@ -15,14 +27,14 @@ public:
     SocketConnection(const SocketConnection&) = delete;
     SocketConnection& operator=(const SocketConnection&) = delete;
     SocketConnection(SocketConnection&& other) noexcept
-        : m_handle(std::exchange(other.m_handle, NULL)),
-        m_nbRequest(std::exchange(other.m_nbRequest, 0)),
-        m_clientData(std::exchange(other.m_clientData, SOCKADDR_IN{})) {};
+        : m_clientData(std::exchange(other.m_clientData, {})),
+        m_handle(std::exchange(other.m_handle, NULL)),
+        m_nbRequest(std::exchange(other.m_nbRequest, 0)) {};
     SocketConnection& operator=(SocketConnection&& other) noexcept
     {
+        std::swap(m_clientData, other.m_clientData);
         std::swap(m_handle, other.m_handle);
         std::swap(m_nbRequest, other.m_nbRequest);
-        std::swap(m_clientData, other.m_clientData);
 
         return *this;
     };
@@ -51,7 +63,11 @@ public:
 
     constexpr bool isClosed() const
     {
+#ifdef _WIN32
         return m_handle == NULL;
+#else
+        return m_handle == INVALID_SOCKET || m_handle < 0;
+#endif
     }
 
     constexpr bool closeRequested() const
@@ -65,10 +81,18 @@ public:
     }
 
 private:
+#ifdef _WIN32
     SocketConnection(SOCKET handle, SOCKADDR_IN clientData);
+#else
+    SocketConnection(SOCKET handle, struct sockaddr_in clientData);
+#endif
 
 private:
+#ifdef _WIN32
     SOCKADDR_IN m_clientData;
+#else
+    struct sockaddr_in m_clientData;
+#endif
     SOCKET m_handle;
     bool m_closeRequested;
     std::array<char, 512> m_recvBuffer;

@@ -2,6 +2,7 @@
 #include <map>
 #include <string>
 #include <limits>
+#include <cstdint>
 #include <HttpPage.hpp>
 #include <variant>
 

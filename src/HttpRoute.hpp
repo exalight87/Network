@@ -2,6 +2,9 @@
 #include <string>
 #include <functional>
 #include <optional>
+#include <vector>
+#include <algorithm>
+#include <ranges>
 #include <HttpRequest.hpp>
 #include <HttpResponse.hpp>
 
@@ -27,7 +30,7 @@ inline bool HttpRoute::operator()(Range currentRoute_, const HttpRequest& reques
 	auto currentRoute = std::ranges::subrange(currentRoute_);
 	if (nbSlashes == std::string::npos)
 	{
-		nbSlashes = std::ranges::count(route, '/');
+		nbSlashes = std::count(route.begin(), route.end(), '/');
 	}
 
 	std::string_view routeJoin = std::string_view(currentRoute.front());
@@ -46,7 +49,7 @@ inline bool HttpRoute::operator()(Range currentRoute_, const HttpRequest& reques
 
 	if (!allowedMethods.empty() && std::find(allowedMethods.begin(), allowedMethods.end(), request.method) == allowedMethods.end())
 	{
-		response.code = 401;
+		response.code = 405;
 		return false;
 	}
 

@@ -1,17 +1,44 @@
 add_rules("mode.debug", "mode.release")
 set_warnings("all", "error")
-set_languages("cxxlatest")
+set_languages("c++23")
 
-add_requires("libcurl")
+-- Enable compilation database for LSP support
+add_rules("plugin.compile_commands.autoupdate", {outputdir = ".vscode"})
+
+
+add_requires("libcurl", "gtest")
 
 target("test_curl")
-    set_kind("binary")
+    set_kind("static")
     add_files("src/*.cpp")
     add_includedirs("src")
     add_headerfiles("src/*.hpp", {prefixdir = "include"})
     add_packages("libcurl")
-    set_pcxxheader("src/precompiled.hpp")
-    add_forceincludes("precompiled.hpp")
+    add_defines("_CRT_SECURE_NO_WARNINGS")
+
+-- Add test target
+target("server_tests")
+    set_kind("binary")
+    add_files("tests/server_test.cpp")
+    add_deps("test_curl")
+    add_packages("gtest", "libcurl")
+    
+    add_includedirs("tests")
+    add_includedirs("src")
+
+    after_build(function (target)
+        os.exec(target:targetfile())
+    end)
+
+target("http_server")
+    set_kind("binary")
+    add_files("src/main.cpp")
+    add_deps("test_curl")
+    add_includedirs("src")
+    add_headerfiles("src/*.hpp", {prefixdir = "include"})
+    add_packages("libcurl")
+    add_syslinks("pthread")
+    add_defines("_CRT_SECURE_NO_WARNINGS")
 
 --
 -- If you want to known more usage about xmake, please see https://xmake.io

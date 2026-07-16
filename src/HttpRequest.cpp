@@ -2,11 +2,14 @@
 #include <iostream>
 #include <format>
 #include <string_view>
+#include <unordered_map>
+#include <ranges>
 
 namespace
 {
 	HttpRequest::Methods _GetMethodFromString(std::string_view methodStr);
 	URL::Protocols _GetProtocolFromString(std::string_view protocoldStr);
+	std::string _UrlDecode(std::string_view encoded);
 }
 
 void URL::parse(std::string_view url)
@@ -60,12 +63,12 @@ void URL::parse(std::string_view url)
 			});
 		auto splitedQueryArgIt = splitedQueryArg.begin();
 
-		std::pair<std::string, std::string> paramsPair = std::make_pair(*splitedQueryArgIt, "");
+		std::pair<std::string, std::string> paramsPair = std::make_pair(_UrlDecode(*splitedQueryArgIt), "");
 
 		// handle query params without value
 		if (!(*++splitedQueryArgIt).empty())
 		{
-			paramsPair.second = *splitedQueryArgIt;
+			paramsPair.second = _UrlDecode(*splitedQueryArgIt);
 		}
 
 		queryParams.insert(paramsPair);
@@ -94,14 +97,16 @@ bool HttpRequest::parse(std::string_view request)
 	httpVersion = std::string(*requestLineIt);
 
 	// PARSE HEADERS
+	size_t headerCount = 0;
 	for (const auto& header : reqByLine | std::views::drop(1) | std::ranges::views::transform([](auto&& rng) {
 		return std::string_view(&*rng.begin(), std::ranges::distance(rng));
 		}))
 	{
 		if (header.empty() || header == "\r\n"sv)
 		{
-			continue;
+			break;
 		}
+		headerCount++;
 
 		auto headerArg = std::views::split(header, ':') | std::ranges::views::transform([](auto&& rng) {
 			return std::string_view(&*rng.begin(), std::ranges::distance(rng));
@@ -120,6 +125,21 @@ bool HttpRequest::parse(std::string_view request)
 		}
 
 		headers.insert(headerPair);
+	}
+
+	// PARSE BODY
+	auto bodyIt = reqByLine.begin();
+	std::advance(bodyIt, 1 + headerCount + 1); // request line + headers + empty line
+	if (bodyIt != reqByLine.end())
+	{
+		auto bodyView = *bodyIt | std::views::split('\0') | std::ranges::views::transform([](auto&& rng) {
+			return std::string_view(&*rng.begin(), std::ranges::distance(rng));
+		});
+		auto bodyIt2 = bodyView.begin();
+		if (bodyIt2 != bodyView.end() && !(*bodyIt2).empty())
+		{
+			body = std::string(*bodyIt2);
+		}
 	}
 
 	return true;
@@ -141,6 +161,22 @@ namespace
 		{
 			return HttpRequest::Methods::PUT;
 		}
+		else if (methodStr == "DELETE")
+		{
+			return HttpRequest::Methods::DELETE;
+		}
+		else if (methodStr == "PATCH")
+		{
+			return HttpRequest::Methods::PATCH;
+		}
+		else if (methodStr == "HEAD")
+		{
+			return HttpRequest::Methods::HEAD;
+		}
+		else if (methodStr == "OPTIONS")
+		{
+			return HttpRequest::Methods::OPTIONS;
+		}
 
 		return HttpRequest::Methods::UNKNOWN;
 	}
@@ -158,4 +194,39 @@ namespace
 
 		return URL::Protocols::UNKNOWN;
 	}
+
+	std::string _UrlDecode(std::string_view encoded)
+	{
+		std::string result;
+		result.reserve(encoded.size());
+
+		for (size_t i = 0; i < encoded.size(); ++i)
+		{
+			if (encoded[i] == '%' && i + 2 < encoded.size())
+			{
+				int value;
+				std::string_view hex = encoded.substr(i + 1, 2);
+				if (std::from_chars(hex.data(), hex.data() + 2, value, 16).ec == std::errc{})
+				{
+					result += static_cast<char>(value);
+					i += 2;
+				}
+				else
+				{
+					result += encoded[i];
+				}
+			}
+			else if (encoded[i] == '+')
+			{
+				result += ' ';
+			}
+			else
+			{
+				result += encoded[i];
+			}
+		}
+
+		return result;
+	}
+
 }

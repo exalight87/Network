@@ -1,6 +1,7 @@
 #include <NetworkCurl.hpp>
 #include <stdexcept>
 #include <span>
+#include <string_view>
 
 namespace
 {
@@ -163,12 +164,13 @@ NetworkResponse NetworkCurl::Get(std::string_view URL)
 
     curl_easy_getinfo(m_curl, CURLINFO_RESPONSE_CODE, &response.code);
 
+#if LIBCURL_VERSION_NUM >= 0x075400
     curl_header *prev = NULL;
     curl_header *h;
     /* extract the normal headers from the first request */
     while ((h = curl_easy_nextheader(m_curl, CURLH_HEADER, 0, prev)))
     {
-        response.headers.emplace( h->name, h->value );
+        response.headers.emplace(h->name, h->value);
         prev = h;
     }
 
@@ -179,6 +181,7 @@ NetworkResponse NetworkCurl::Get(std::string_view URL)
         response.headers.emplace(h->name, h->value);
         prev = h;
     }
+#endif
 
     /* Check for errors */
     if (res != CURLE_OK)
@@ -186,6 +189,52 @@ NetworkResponse NetworkCurl::Get(std::string_view URL)
         auto errorMsg = std::format("curl_easy_perform() failed: {}", curl_easy_strerror(res));
         response.memory = {errorMsg.begin(), errorMsg.end()};
     }
+
+    response.body = std::string_view(reinterpret_cast<const char *>(response.memory.data()), response.memory.size());
+
+    return response;
+}
+
+NetworkResponse NetworkCurl::Post(std::string_view URL, std::string_view payload)
+{
+    NetworkResponse response;
+    curl_easy_setopt(m_curl, CURLOPT_WRITEDATA, (void *)&response);
+    curl_easy_setopt(m_curl, CURLOPT_URL, URL.data());
+    curl_easy_setopt(m_curl, CURLOPT_POST, 1L);
+    curl_easy_setopt(m_curl, CURLOPT_POSTFIELDS, payload.data());
+    curl_easy_setopt(m_curl, CURLOPT_POSTFIELDSIZE, payload.size());
+
+    CURLcode res = curl_easy_perform(m_curl);
+
+    curl_easy_getinfo(m_curl, CURLINFO_RESPONSE_CODE, &response.code);
+
+#if LIBCURL_VERSION_NUM >= 0x075400
+    curl_header *prev = NULL;
+    curl_header *h;
+    /* extract the normal headers from the first request */
+    while ((h = curl_easy_nextheader(m_curl, CURLH_HEADER, 0, prev)))
+    {
+        response.headers.emplace(h->name, h->value);
+        prev = h;
+    }
+
+    /* extract the normal headers + 1xx + trailers from the last request */
+    unsigned int origin = CURLH_HEADER | CURLH_1XX | CURLH_TRAILER;
+    while ((h = curl_easy_nextheader(m_curl, origin, -1, prev)))
+    {
+        response.headers.emplace(h->name, h->value);
+        prev = h;
+    }
+#endif
+
+    /* Check for errors */
+    if (res != CURLE_OK)
+    {
+        auto errorMsg = std::format("curl_easy_perform() failed: {}", curl_easy_strerror(res));
+        response.memory = {errorMsg.begin(), errorMsg.end()};
+    }
+
+    response.body = std::string_view(reinterpret_cast<const char *>(response.memory.data()), response.memory.size());
 
     return response;
 }

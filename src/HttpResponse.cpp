@@ -2,10 +2,22 @@
 #include <format>
 #include <fstream>
 #include <sstream>
+#include <cstdlib>
 
 namespace {
     std::string_view _GetContentType(std::string_view filename);
-    std::string ROOT_FOLDER = "E:/projet/test_curl";
+    std::string ROOT_FOLDER = []() {
+        const char* envPath = std::getenv("SERVER_ROOT");
+        if (envPath)
+        {
+            return std::string(envPath);
+        }
+#ifdef _WIN32
+        return std::string("E:/projet/test_curl");
+#else
+        return std::string(".");
+#endif
+    }();
 }
 
 HttpResponse HttpResponse::CODE_404 = {
@@ -15,7 +27,7 @@ HttpResponse HttpResponse::CODE_404 = {
     .code = 404,
     .body = HttpPage{
         "404 page",
-        "<h1>C'est cassé !</h1>"
+        "<h1>C'est cassï¿½ !</h1>"
     }
 };
 

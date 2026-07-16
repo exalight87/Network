@@ -47,7 +47,7 @@ Result<void, HttpServerError> HttpServer::start()
                             auto result = connection->send(HttpResponse::CLOSE_CONNECTION.format());
                             if (!result)
                             {
-                                std::cerr << result.Error().GetFormatedError() << "\n";
+                                std::cerr << result.GetError().GetFormatedError() << "\n";
                             }
                             break;
                         }
@@ -65,7 +65,7 @@ Result<void, HttpServerError> HttpServer::start()
                         auto splitedPath = std::views::split(cleanedPath, '/');
                         for (auto& route : m_routes)
                         {
-                            if (routeFound = route(splitedPath, request, response))
+                            if ((routeFound = route(splitedPath, request, response)))
                             {
                                 break;
                             }
@@ -86,7 +86,7 @@ Result<void, HttpServerError> HttpServer::start()
                     }
                 }
 
-                if (!rRequest && rRequest.Error().type == HttpServerError::CloseRequested)
+                if (!rRequest && rRequest.GetError().type == HttpServerError::CloseRequested)
                 {
                     connection->requestClose();
                     response = HttpResponse::CLOSE_CONNECTION;
@@ -114,8 +114,7 @@ Result<void, HttpServerError> HttpServer::start()
 
                 if (!result)
                 {
-                    std::cerr << result.Error().GetFormatedError() << "\n";
-                    return;
+                    std::cerr << result.GetError().GetFormatedError() << "\n";
                 }
             }
         }
@@ -124,7 +123,7 @@ Result<void, HttpServerError> HttpServer::start()
     auto rSocketStart = NetworkSocket::start();
     if (!rSocketStart)
     {
-        return Error(HttpServerError::NotSpecialized, "Fail to start socket : " + rSocketStart.Error().GetFormatedError());
+        return Error(HttpServerError::NotSpecialized, "Fail to start socket : " + rSocketStart.GetError().GetFormatedError());
     }
 
     return {};
@@ -141,7 +140,6 @@ namespace {
     {
         using namespace std::chrono_literals;
         std::vector<char> data;
-        uint8_t retry = 0;
         auto begin = std::chrono::high_resolution_clock::now();
         while (data.empty())
         {
@@ -158,7 +156,7 @@ namespace {
             auto result = connection->receive(data);
             if (!result)
             {
-                return Error(HttpServerError::NotSpecialized, result.Error().GetFormatedError());
+                return Error(HttpServerError::NotSpecialized, result.GetError().GetFormatedError());
             }
         }
 
@@ -172,28 +170,23 @@ namespace {
 
     bool _ShouldKeepAlive(const HttpRequest& request)
     {
-        // Default behavior for HTTP/1.1 is to keep the connection alive unless specified otherwise.
         std::string httpVersion = request.httpVersion;
 
         auto headerIt = request.headers.find("Connection");
-        if (headerIt == request.headers.end())
-        {
-            return false;
-        }
-
-        std::string connectionHeader = headerIt->second;
-
+        
         if (httpVersion == "HTTP/1.1") {
-            // For HTTP/1.1, the connection is persistent unless there's a "Connection: close" header.
-            return connectionHeader != "close";
+            if (headerIt == request.headers.end()) {
+                return true;
+            }
+            return headerIt->second != "close";
         }
         else if (httpVersion == "HTTP/1.0") {
-            // For HTTP/1.0, the connection is not persistent unless there's a "Connection: keep-alive" header.
-            return connectionHeader == "keep-alive";
+            if (headerIt == request.headers.end()) {
+                return false;
+            }
+            return headerIt->second == "keep-alive";
         }
 
-        // If the request is using another HTTP version, you might decide based on your application's requirements.
-        // For simplicity, we could default to closing the connection.
         return false;
     }
 }

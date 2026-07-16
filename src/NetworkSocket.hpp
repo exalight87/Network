@@ -1,6 +1,17 @@
 #pragma once
+#ifdef _WIN32
 #include <winsock2.h>
 #pragma comment(lib, "ws2_32.lib")
+#else
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+#include <unistd.h>
+#include <fcntl.h>
+#define SOCKET int
+#define INVALID_SOCKET (-1)
+#define SOCKET_ERROR (-1)
+#endif
 #include <string_view>
 #include <span>
 #include <array>
@@ -34,7 +45,11 @@ protected:
     bool m_listen();
     Result<void, DefaultErrorType> m_connect();
 
+#ifdef _WIN32
     SOCKADDR_IN m_sourceData;
+#else
+    struct sockaddr_in m_sourceData;
+#endif
     SOCKET m_handle;
     std::unique_ptr<ConnectionPool> m_pool;
 };

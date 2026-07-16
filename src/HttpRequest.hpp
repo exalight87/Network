@@ -26,8 +26,12 @@ struct HttpRequest
 	{
 		UNKNOWN,
 		GET,
+		POST,
 		PUT,
-		POST
+		DELETE,
+		PATCH,
+		HEAD,
+		OPTIONS
 	};
 
 	Methods method = Methods::UNKNOWN;
