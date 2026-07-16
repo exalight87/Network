@@ -1,4 +1,5 @@
 #include <cstdint>
+#include <cctype>
 #include <iostream>
 #include <string>
 #include <string_view>
@@ -47,6 +48,28 @@ void json(HttpResponse& response, uint32_t code, std::string body)
     response.headers["Content-Type"] = "application/json; charset=utf-8";
     response.headers["Cache-Control"] = "no-store";
 }
+
+std::string headerValue(const HttpRequest& request, std::string_view expectedName)
+{
+    for (const auto& [name, value] : request.headers)
+    {
+        if (name.size() != expectedName.size())
+            continue;
+        bool matches = true;
+        for (std::size_t index = 0; index < name.size(); ++index)
+        {
+            if (std::tolower(static_cast<unsigned char>(name[index])) !=
+                std::tolower(static_cast<unsigned char>(expectedName[index])))
+            {
+                matches = false;
+                break;
+            }
+        }
+        if (matches)
+            return value;
+    }
+    return {};
+}
 } // namespace
 
 int main(int argc, char** argv)
@@ -68,12 +91,26 @@ int main(int argc, char** argv)
                      .description = "Health check returning a deterministic JSON response"});
 
     server.addRoute({.route = "users/{id}",
+                     .allowedMethods = {HttpRequest::GET, HttpRequest::PATCH},
                      .callable = [](const HttpRequest& request, HttpResponse& response)
                      {
                          const auto id = request.pathParams.find("id");
                          if (id == request.pathParams.end() || id->second.empty() || id->second.size() > 32)
                          {
                              json(response, 400, R"({"error":"invalid user id"})");
+                             return true;
+                         }
+                         if (request.method == HttpRequest::PATCH)
+                         {
+                             if (request.body.empty())
+                             {
+                                 json(response, 422, R"({"error":"patch body is required"})");
+                                 return true;
+                             }
+                             json(response, 200,
+                                  "{\"id\":\"" + jsonEscape(id->second) +
+                                      "\",\"updated\":true,\"patch\":\"" + jsonEscape(request.body) + "\"}");
+                             response.headers["X-Resource-Version"] = "2";
                              return true;
                          }
                          const auto details = request.url.queryParams.find("details");
@@ -103,6 +140,35 @@ int main(int argc, char** argv)
                          return true;
                      },
                      .description = "Echoes a bounded request body as JSON"});
+
+    server.addRoute({.route = "inspect",
+                     .callable = [](const HttpRequest& request, HttpResponse& response)
+                     {
+                         const std::string demoUser = headerValue(request, "X-Demo-User");
+                         json(response, 200,
+                              "{\"method\":\"GET\",\"accept\":\"" +
+                                  jsonEscape(headerValue(request, "Accept")) + "\",\"demoUser\":\"" +
+                                  jsonEscape(demoUser.empty() ? "anonymous" : demoUser) + "\"}");
+                         response.headers["Vary"] = "Accept, X-Demo-User";
+                         return true;
+                     },
+                     .description = "Inspects selected request headers and demonstrates a custom response header"});
+
+    server.addRoute({.route = "jobs",
+                     .allowedMethods = {HttpRequest::POST},
+                     .callable = [](const HttpRequest& request, HttpResponse& response)
+                     {
+                         if (request.body.empty())
+                         {
+                             json(response, 422, R"({"error":"job payload is required"})");
+                             return true;
+                         }
+                         json(response, 201, R"({"id":"job-demo-001","status":"queued"})");
+                         response.headers["Location"] = "/jobs/job-demo-001";
+                         response.headers["X-Request-Id"] = "demo-request-001";
+                         return true;
+                     },
+                     .description = "Creates a queued job with a 201 status and resource headers"});
 
     server.addRoute({.route = "errors/{code}",
                      .callable = [](const HttpRequest& request, HttpResponse& response)
