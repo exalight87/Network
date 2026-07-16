@@ -41,6 +41,7 @@ struct HttpRequest
 
 	std::unordered_map<std::string, std::string> headers;
 	std::string body;
+	std::unordered_map<std::string, std::string> pathParams;
 
 	bool parse(std::string_view request);
 };

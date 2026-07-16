@@ -44,8 +44,6 @@ Result<void, HttpServerError> HttpServer::start()
 
             while (!stopToken.stop_requested() && !connection->isClosed() && !connection->closeRequested())
             {
-                std::cout << "Connection : " << connection->handle() << '\n';
-
                 HttpRequest request;
                 HttpResponse response;
                 bool routeFound = false;
@@ -172,22 +170,60 @@ Result<void, HttpServerError> HttpServer::start()
 
 void HttpServer::addRoute(HttpRoute&& route)
 {
-    if (!route.allowedMethods.empty())
+    bool success = true;
+    
+    std::function<void(HttpRoute&, std::string_view)> registerRoute = [&](HttpRoute& r, std::string_view parentPath)
     {
-        for (auto method : route.allowedMethods)
+        std::string fullPath;
+        bool isEmptyRoute = r.route.empty();
+        
+        if (parentPath.empty())
         {
-            if (!RouteRegistry::instance().addRoute(route.route, method))
+            fullPath = r.route;
+        }
+        else if (isEmptyRoute)
+        {
+            fullPath = parentPath;
+        }
+        else
+        {
+            fullPath = std::string(parentPath) + "/" + std::string(r.route);
+        }
+
+        bool hasHandler = r.callable.has_value() || !r.allowedMethods.empty();
+        
+        if (hasHandler || r.subRoutes.empty())
+        {
+            if (!r.allowedMethods.empty())
             {
-                std::cerr << "[WARNING] Duplicate route not added: " << route.route << "\n";
-                return;
+                for (auto method : r.allowedMethods)
+                {
+                    if (!RouteRegistry::instance().addRoute(r.route, method, fullPath))
+                    {
+                        std::cerr << "[WARNING] Duplicate route not added: " << fullPath << "\n";
+                        success = false;
+                        return;
+                    }
+                }
+            }
+            else
+            {
+                RouteRegistry::instance().addRoute(r.route, HttpRequest::UNKNOWN, fullPath);
             }
         }
-    }
-    else
+
+        for (auto& subRoute : r.subRoutes)
+        {
+            registerRoute(subRoute, fullPath);
+        }
+    };
+
+    registerRoute(route, {});
+    
+    if (success)
     {
-        RouteRegistry::instance().addRoute(route.route, HttpRequest::UNKNOWN);
+        m_routes.push_back(std::forward<HttpRoute>(route));
     }
-    m_routes.push_back(std::forward<HttpRoute>(route));
 }
 
 void HttpServer::clearRoutes()

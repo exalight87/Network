@@ -14,12 +14,12 @@ public:
         return inst;
     }
     
-    bool addRoute(std::string_view path, HttpRequest::Methods method)
+    bool addRoute(std::string_view path, HttpRequest::Methods method, std::string_view fullPath = {})
     {
-        auto key = makeKey(path, method);
+        auto key = makeKey(fullPath.empty() ? path : fullPath, method);
         if (m_routes.contains(key))
         {
-            std::cerr << "[ERROR] Duplicate route detected: " << path 
+            std::cerr << "[ERROR] Duplicate route detected: " << (fullPath.empty() ? path : fullPath) 
                       << " (method: " << methodToString(method) << ")\n";
             return false;
         }
@@ -30,6 +30,20 @@ public:
     bool routeExists(std::string_view path, HttpRequest::Methods method) const
     {
         return m_routes.contains(makeKey(path, method));
+    }
+    
+    std::string getFullRoute(std::string_view path, HttpRequest::Methods method) const
+    {
+        auto it = m_routes.find(makeKey(path, method));
+        if (it != m_routes.end())
+        {
+            auto pos = it->rfind('_');
+            if (pos != std::string::npos)
+            {
+                return it->substr(0, pos);
+            }
+        }
+        return std::string(path);
     }
     
     void clear()

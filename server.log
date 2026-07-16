@@ -1,0 +1,18 @@
+Starting API server on port 9090...
+Available endpoints:
+  GET /              - HTML home page
+  GET /about         - HTML about page
+  GET /api/users     - JSON user list
+  GET /api/users/{id}- JSON user details
+  GET /api/health    - JSON health check
+Server listening on 0.0.0.0:9090
+  Request from [  ] on : /api/users/0/info
+DEBUG: route='api' currentRoute size=4 nbSlashes=0 routeHasParams=0
+DEBUG: routeJoin='api'
+DEBUG: route matched! route=api routeToCover size=3
+DEBUG: route='users' currentRoute size=3 nbSlashes=0 routeHasParams=0
+DEBUG: routeJoin='users'
+DEBUG: route matched! route=users routeToCover size=2
+DEBUG: route='{id}/info' currentRoute size=2 nbSlashes=1 routeHasParams=1
+DEBUG: routeJoin='0/info'
+DEBUG: route matched! route={id}/info routeToCover size=0
