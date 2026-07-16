@@ -6,6 +6,15 @@
 ConnectionPool::ConnectionPool(std::function< void(std::stop_token, std::shared_ptr<SocketConnection>) > callable)
     : m_entryPoint(callable) 
 {
+    // Create thread pool based on hardware concurrency
+    unsigned int numThreads = std::thread::hardware_concurrency();
+    if (numThreads == 0) numThreads = 4;
+
+    for (unsigned int i = 0; i < numThreads; ++i)
+    {
+        m_workers.emplace_back([this](std::stop_token stopToken) { m_worker(stopToken); });
+    }
+
     m_cleaner = std::jthread([this](std::stop_token stopToken)
         {
             auto removeClosedConnections = [this]() {
@@ -23,16 +32,9 @@ ConnectionPool::ConnectionPool(std::function< void(std::stop_token, std::shared_
                 for (auto it = toRemove.rbegin(); it != toRemove.rend(); ++it) {
                     std::size_t idx = *it;
                     std::lock_guard<std::mutex> lock(m_mutex);
-                    if (idx < m_listeners.size()) {
-                        m_listeners[idx].request_stop();
-                    }
                     if (idx < m_connections.size()) {
                         std::swap(m_connections[idx], m_connections.back());
                         m_connections.pop_back();
-                        if (idx < m_listeners.size()) {
-                            std::swap(m_listeners[idx], m_listeners.back());
-                            m_listeners.pop_back();
-                        }
                     }
                 }
             };
@@ -46,26 +48,60 @@ ConnectionPool::ConnectionPool(std::function< void(std::stop_token, std::shared_
         });
 }
 
+ConnectionPool::~ConnectionPool()
+{
+    stop();
+}
+
+void ConnectionPool::m_worker(std::stop_token stopToken)
+{
+    while (!stopToken.stop_requested() && !m_stop)
+    {
+        std::shared_ptr<SocketConnection> connection;
+        
+        {
+            std::unique_lock<std::mutex> lock(m_mutex);
+            m_workCondition.wait(lock, [this, &stopToken]() {
+                return !m_workQueue.empty() || stopToken.stop_requested() || m_stop;
+            });
+
+            if (stopToken.stop_requested() || m_stop) break;
+
+            if (!m_workQueue.empty())
+            {
+                connection = m_workQueue.front();
+                m_workQueue.pop();
+            }
+        }
+
+        if (connection && !connection->isClosed())
+        {
+            m_entryPoint(stopToken, connection);
+        }
+    }
+}
+
 void ConnectionPool::m_push(SocketConnection&& connection)
 {   
     auto connPtr = std::make_shared<SocketConnection>(std::move(connection));
-    std::lock_guard<std::mutex> lock(m_mutex);
-    m_connections.push_back(connPtr);
-    m_listeners.emplace_back(m_entryPoint, connPtr);
+    {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        m_connections.push_back(connPtr);
+        m_workQueue.push(connPtr);
+    }
+    m_workCondition.notify_one();
 }
 
 void ConnectionPool::stop()
 {
-    std::lock_guard<std::mutex> lock(m_mutex);
-
-    for (auto& listener : m_listeners) {
-        listener.request_stop();
-    }
-    m_listeners.clear();
+    m_stop = true;
+    m_workCondition.notify_all();
     
     for (auto& connection : m_connections)
     {
         connection->disconnect();
     }
+    
+    m_workers.clear();
     m_connections.clear();
 }

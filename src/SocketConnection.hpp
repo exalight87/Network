@@ -50,22 +50,43 @@ public:
     Result<void, DefaultErrorType> disconnect();
     ~SocketConnection() { disconnect(); };
 
+    // HTTP/2 support
+    bool isHttp2() const { return m_isHttp2; }
+    void setHttp2(bool isHttp2) { m_isHttp2 = isHttp2; }
+    
     Result<std::string, DefaultErrorType> ip() const;
     Result<uint32_t, DefaultErrorType> port() const;
     constexpr SOCKET handle() const { return m_handle; };
 
     constexpr auto timeout() const {
         using namespace std::chrono_literals;
-        return 70s;
+        return 300s;  // 5 minute timeout for aggressive keep-alive
     };
 
     constexpr std::size_t maxRequest() const {
-        return 1000;
+        return 10000;  // More requests per connection
     };
 
     constexpr std::size_t nbRequest() const {
         return m_nbRequest;
     };
+
+    // Set protocol preference for ALPN
+    void setProtocolPreference(const std::vector<std::string>& protocols) {
+        m_protocolPreference = protocols;
+    }
+    
+    const std::vector<std::string>& getProtocolPreference() const {
+        return m_protocolPreference;
+    }
+    
+    // Check if client supports HTTP/2
+    bool supportsProtocol(const std::string& protocol) const {
+        for (const auto& p : m_protocolPreference) {
+            if (p == protocol) return true;
+        }
+        return false;
+    }
 
     constexpr bool isClosed() const
     {
@@ -102,6 +123,8 @@ private:
     SOCKET m_handle;
     std::size_t m_nbRequest;
     bool m_closeRequested;
+    bool m_isHttp2{false};
     std::function<void()> m_onClose;
+    std::vector<std::string> m_protocolPreference;
     std::array<char, 16384> m_recvBuffer;
 };

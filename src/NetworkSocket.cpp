@@ -269,10 +269,7 @@ Result<void, DefaultErrorType> NetworkSocket::m_connect()
 #endif
     }
 
-#ifndef _WIN32
-    int flags = fcntl(connection, F_GETFL, 0);
-    fcntl(connection, F_SETFL, flags | O_NONBLOCK);
-#endif
+
 
     m_currentConnections++;
     auto connPtr = std::make_shared<SocketConnection>(connection, clientData);

@@ -5,11 +5,15 @@
 #include <SocketConnection.hpp>
 #include <ConnectionPool.hpp>
 #include <ScopeGuard.hpp>
+#include <Http2.hpp>
+#include <cstring>  // For memcmp
 
 namespace
 {
-    Result<HttpRequest, HttpServerError> _getHttpRequest(std::shared_ptr<SocketConnection> connection);
+    Result<HttpRequest, HttpServerError> _getHttpRequest(std::shared_ptr<SocketConnection> connection, const std::vector<char>* initialData);
     bool _ShouldKeepAlive(const HttpRequest& request);
+    bool _IsHttp2Connection(const std::vector<char>& data);
+    void _HandleHttp2Connection(std::shared_ptr<SocketConnection> connection, const std::vector<char>& initialData);
 }
 
 Result<void, HttpServerError> HttpServer::start()
@@ -24,6 +28,21 @@ Result<void, HttpServerError> HttpServer::start()
                 }
                 });
 
+            // Check if this is an HTTP/2 connection
+            std::vector<char> initialData;
+            auto rData = connection->receive(initialData);
+            
+            if (rData && !initialData.empty())
+            {
+                if (_IsHttp2Connection(initialData))
+                {
+                    std::cout << "HTTP/2 connection detected\n";
+                    connection->setHttp2(true);
+                    _HandleHttp2Connection(connection, initialData);
+                    return;
+                }
+            }
+
             while (!stopToken.stop_requested() && !connection->isClosed() && !connection->closeRequested())
             {
                 std::cout << "Connection : " << connection->handle() << '\n';
@@ -35,7 +54,8 @@ Result<void, HttpServerError> HttpServer::start()
 
                 try
                 {
-                    rRequest = _getHttpRequest(connection);
+                    rRequest = _getHttpRequest(connection, &initialData);
+                    initialData.clear();  // Clear after first use
 
                     if (rRequest)
                     {
@@ -108,6 +128,8 @@ Result<void, HttpServerError> HttpServer::start()
                 if (_ShouldKeepAlive(request)) {
                     response.headers["Connection"] = "keep-alive";
                     response.headers["Keep-Alive"] = std::format("timeout={}, max={}", connection->timeout().count(), connection->maxRequest());
+                } else {
+                    response.headers["Connection"] = "close";
                 }
 
                 auto result = connection->send(response.format());
@@ -115,6 +137,11 @@ Result<void, HttpServerError> HttpServer::start()
                 if (!result)
                 {
                     std::cerr << result.GetError().GetFormatedError() << "\n";
+                }
+
+                // Check max requests for aggressive reuse
+                if (connection->nbRequest() >= connection->maxRequest()) {
+                    break;
                 }
             }
         }
@@ -136,10 +163,16 @@ void HttpServer::addRoute(HttpRoute&& route)
 
 
 namespace {
-    Result<HttpRequest, HttpServerError> _getHttpRequest(std::shared_ptr<SocketConnection> connection)
+    Result<HttpRequest, HttpServerError> _getHttpRequest(std::shared_ptr<SocketConnection> connection, const std::vector<char>* initialData = nullptr)
     {
         using namespace std::chrono_literals;
         std::vector<char> data;
+        
+        // Use initial data if provided
+        if (initialData && !initialData->empty()) {
+            data = *initialData;
+        }
+        
         auto begin = std::chrono::high_resolution_clock::now();
         while (data.empty())
         {
@@ -188,5 +221,108 @@ namespace {
         }
 
         return false;
+    }
+
+    [[maybe_unused]] bool _IsHttp2Request(const std::vector<char>& data)
+    {
+        // HTTP/2 connection preface: "PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n"
+        if (data.size() >= 24) {
+            const char* preface = "PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n";
+            return std::memcmp(data.data(), preface, 24) == 0;
+        }
+        return false;
+    }
+
+    bool _IsHttp2Connection(const std::vector<char>& data)
+    {
+        // HTTP/2 connection preface: "PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n"
+        if (data.size() >= 24) {
+            const char* preface = "PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n";
+            return std::memcmp(data.data(), preface, 24) == 0;
+        }
+        return false;
+    }
+
+    void _HandleHttp2Connection(std::shared_ptr<SocketConnection> connection, const std::vector<char>& initialData)
+    {
+        Http2Connection http2Conn;
+        std::vector<char> buffer;
+        
+        // Process the initial data
+        std::vector<uint8_t> response;
+        auto result = http2Conn.processData(
+            reinterpret_cast<const uint8_t*>(initialData.data()), 
+            initialData.size()
+        );
+        
+        if (result) {
+            response = result.Data();
+            if (!response.empty()) {
+                auto sendResult = connection->send(std::span<const char>(
+                    reinterpret_cast<const char*>(response.data()), 
+                    response.size()
+                ));
+                if (!sendResult) {
+                    std::cerr << "HTTP/2 send error: " << sendResult.GetError().GetFormatedError() << "\n";
+                }
+            }
+        }
+        
+        // Continue handling HTTP/2 frames
+        while (!connection->isClosed() && !connection->closeRequested())
+        {
+            buffer.clear();
+            auto rData = connection->receive(buffer);
+            
+            if (!rData || buffer.empty()) {
+                if (!rData) {
+                    std::cerr << "HTTP/2 receive error: " << rData.GetError().GetFormatedError() << "\n";
+                }
+                break;
+            }
+            
+            // Process incoming frames
+            result = http2Conn.processData(
+                reinterpret_cast<const uint8_t*>(buffer.data()), 
+                buffer.size()
+            );
+            
+            if (result) {
+                response = result.Data();
+                if (!response.empty()) {
+                    auto sendResult = connection->send(std::span<const char>(
+                        reinterpret_cast<const char*>(response.data()), 
+                        response.size()
+                    ));
+                    if (!sendResult) {
+                        std::cerr << "HTTP/2 send error: " << sendResult.GetError().GetFormatedError() << "\n";
+                    }
+                }
+            } else {
+                std::cerr << "HTTP/2 processing error: " << result.GetError().GetFormatedError() << "\n";
+                break;
+            }
+        }
+        
+        std::cout << "HTTP/2 connection closed\n";
+    }
+
+    [[maybe_unused]] Result<std::string, HttpServerError> _getHttp2Request(std::shared_ptr<SocketConnection> connection)
+    {
+        std::vector<char> data;
+        auto rData = connection->receive(data);
+        
+        if (!rData)
+        {
+            return Error(HttpServerError::NotSpecialized, rData.GetError().GetFormatedError());
+        }
+
+        if (data.empty())
+        {
+            return Error(HttpServerError::NotSpecialized, "Empty HTTP/2 request");
+        }
+
+        // Simple HTTP/2 response for now
+        return std::string(data.begin(), data.end());
     }
 }
