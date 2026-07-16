@@ -1,6 +1,26 @@
 [
 {
   "directory": "E:\\projet\\test_curl",
+  "arguments": ["C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Tools\\MSVC\\14.38.33130\\bin\\HostX64\\x64\\cl.exe", "/c", "/nologo", "/MD", "/W3", "/WX", "/O2", "/std:c++latest", "/Iinclude", "/D_CRT_SECURE_NO_WARNINGS", "/EHsc", "/DNDEBUG", "/Fobuild\\.objs\\http_server\\windows\\x64\\release\\examples\\showcase_server\\main.cpp.obj", "examples\\showcase_server\\main.cpp"],
+  "file": "examples\\showcase_server\\main.cpp"
+},
+{
+  "directory": "E:\\projet\\test_curl",
+  "arguments": ["C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Tools\\MSVC\\14.38.33130\\bin\\HostX64\\x64\\cl.exe", "/c", "/nologo", "/MD", "/W3", "/WX", "/O2", "/std:c++latest", "/Iinclude", "/D_CRT_SECURE_NO_WARNINGS", "/DCURL_STATICLIB", "/EHsc", "/IC:\\Users\\Admin\\AppData\\Local\\.xmake\\packages\\l\\libcurl\\8.21.0\\917c16ddbf2942d1ae0e099942006c5b\\include", "/DNDEBUG", "/Fobuild\\.objs\\http_curl\\windows\\x64\\release\\src\\integrations\\curl\\NetworkCurl.cpp.obj", "src\\integrations\\curl\\NetworkCurl.cpp"],
+  "file": "src\\integrations\\curl\\NetworkCurl.cpp"
+},
+{
+  "directory": "E:\\projet\\test_curl",
+  "arguments": ["C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Tools\\MSVC\\14.38.33130\\bin\\HostX64\\x64\\cl.exe", "/c", "/nologo", "/MD", "/W3", "/WX", "/O2", "/std:c++latest", "/Iinclude", "/D_CRT_SECURE_NO_WARNINGS", "/DCURL_STATICLIB", "/EHsc", "/IC:\\Users\\Admin\\AppData\\Local\\.xmake\\packages\\l\\libcurl\\8.21.0\\917c16ddbf2942d1ae0e099942006c5b\\include", "/DNDEBUG", "/Fobuild\\.objs\\example_curl_client\\windows\\x64\\release\\examples\\curl_client\\main.cpp.obj", "examples\\curl_client\\main.cpp"],
+  "file": "examples\\curl_client\\main.cpp"
+},
+{
+  "directory": "E:\\projet\\test_curl",
+  "arguments": ["C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Tools\\MSVC\\14.38.33130\\bin\\HostX64\\x64\\cl.exe", "/c", "/nologo", "/MD", "/W3", "/WX", "/O2", "/std:c++latest", "/Iinclude", "/D_CRT_SECURE_NO_WARNINGS", "/EHsc", "/DNDEBUG", "/Fobuild\\.objs\\example_api_server\\windows\\x64\\release\\examples\\api_server\\main.cpp.obj", "examples\\api_server\\main.cpp"],
+  "file": "examples\\api_server\\main.cpp"
+},
+{
+  "directory": "E:\\projet\\test_curl",
   "arguments": ["C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Tools\\MSVC\\14.38.33130\\bin\\HostX64\\x64\\cl.exe", "/c", "/nologo", "/MD", "/W3", "/WX", "/O2", "/std:c++latest", "/Iinclude", "/D_CRT_SECURE_NO_WARNINGS", "/EHsc", "/DNDEBUG", "/Fobuild\\.objs\\http_kernel\\windows\\x64\\release\\src\\kernel\\ConnectionPool.cpp.obj", "src\\kernel\\ConnectionPool.cpp"],
   "file": "src\\kernel\\ConnectionPool.cpp"
 },
@@ -46,13 +66,8 @@
 },
 {
   "directory": "E:\\projet\\test_curl",
-  "arguments": ["C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Tools\\MSVC\\14.38.33130\\bin\\HostX64\\x64\\cl.exe", "/c", "/nologo", "/MD", "/W3", "/WX", "/O2", "/std:c++latest", "/Iinclude", "/D_CRT_SECURE_NO_WARNINGS", "/EHsc", "/DNDEBUG", "/Fobuild\\.objs\\example_simple_server\\windows\\x64\\release\\examples\\simple_server\\main.cpp.obj", "examples\\simple_server\\main.cpp"],
-  "file": "examples\\simple_server\\main.cpp"
-},
-{
-  "directory": "E:\\projet\\test_curl",
-  "arguments": ["C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Tools\\MSVC\\14.38.33130\\bin\\HostX64\\x64\\cl.exe", "/c", "/nologo", "/MD", "/W3", "/WX", "/O2", "/std:c++latest", "/Iinclude", "/D_CRT_SECURE_NO_WARNINGS", "/EHsc", "/DNDEBUG", "/Fobuild\\.objs\\example_api_server\\windows\\x64\\release\\examples\\api_server\\main.cpp.obj", "examples\\api_server\\main.cpp"],
-  "file": "examples\\api_server\\main.cpp"
+  "arguments": ["C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Tools\\MSVC\\14.38.33130\\bin\\HostX64\\x64\\cl.exe", "/c", "/nologo", "/MD", "/W3", "/WX", "/O2", "/std:c++latest", "/Iinclude", "/D_CRT_SECURE_NO_WARNINGS", "/EHsc", "/DNDEBUG", "/Fobuild\\.objs\\core_unit_tests\\windows\\x64\\release\\tests\\core_unit_test.cpp.obj", "tests\\core_unit_test.cpp"],
+  "file": "tests\\core_unit_test.cpp"
 },
 {
   "directory": "E:\\projet\\test_curl",
@@ -61,28 +76,8 @@
 },
 {
   "directory": "E:\\projet\\test_curl",
-  "arguments": ["C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Tools\\MSVC\\14.38.33130\\bin\\HostX64\\x64\\cl.exe", "/c", "/nologo", "/MD", "/W3", "/WX", "/O2", "/std:c++latest", "/Itests", "/Iinclude", "/D_CRT_SECURE_NO_WARNINGS", "/EHsc", "/IC:\\Users\\Admin\\AppData\\Local\\.xmake\\packages\\g\\gtest\\v1.17.0\\d847f60f60594398a67987de1d0eb1f5\\include", "/DNDEBUG", "/Fobuild\\.objs\\route_duplicate_tests\\windows\\x64\\release\\tests\\route_duplicate_test.cpp.obj", "tests\\route_duplicate_test.cpp"],
-  "file": "tests\\route_duplicate_test.cpp"
-},
-{
-  "directory": "E:\\projet\\test_curl",
-  "arguments": ["C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Tools\\MSVC\\14.38.33130\\bin\\HostX64\\x64\\cl.exe", "/c", "/nologo", "/MD", "/W3", "/WX", "/O2", "/std:c++latest", "/Iinclude", "/D_CRT_SECURE_NO_WARNINGS", "/EHsc", "/DNDEBUG", "/Fobuild\\.objs\\http_server\\windows\\x64\\release\\examples\\showcase_server\\main.cpp.obj", "examples\\showcase_server\\main.cpp"],
-  "file": "examples\\showcase_server\\main.cpp"
-},
-{
-  "directory": "E:\\projet\\test_curl",
-  "arguments": ["C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Tools\\MSVC\\14.38.33130\\bin\\HostX64\\x64\\cl.exe", "/c", "/nologo", "/MD", "/W3", "/WX", "/O2", "/std:c++latest", "/Iinclude", "/D_CRT_SECURE_NO_WARNINGS", "/DCURL_STATICLIB", "/EHsc", "/IC:\\Users\\Admin\\AppData\\Local\\.xmake\\packages\\l\\libcurl\\8.21.0\\917c16ddbf2942d1ae0e099942006c5b\\include", "/DNDEBUG", "/Fobuild\\.objs\\example_curl_client\\windows\\x64\\release\\examples\\curl_client\\main.cpp.obj", "examples\\curl_client\\main.cpp"],
-  "file": "examples\\curl_client\\main.cpp"
-},
-{
-  "directory": "E:\\projet\\test_curl",
-  "arguments": ["C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Tools\\MSVC\\14.38.33130\\bin\\HostX64\\x64\\cl.exe", "/c", "/nologo", "/MD", "/W3", "/WX", "/O2", "/std:c++latest", "/Itests", "/Iinclude", "/D_CRT_SECURE_NO_WARNINGS", "/DCURL_STATICLIB", "/EHsc", "/IC:\\Users\\Admin\\AppData\\Local\\.xmake\\packages\\g\\gtest\\v1.17.0\\d847f60f60594398a67987de1d0eb1f5\\include", "/IC:\\Users\\Admin\\AppData\\Local\\.xmake\\packages\\l\\libcurl\\8.21.0\\917c16ddbf2942d1ae0e099942006c5b\\include", "/DNDEBUG", "/Fobuild\\.objs\\robustness_tests\\windows\\x64\\release\\tests\\robustness_test.cpp.obj", "tests\\robustness_test.cpp"],
-  "file": "tests\\robustness_test.cpp"
-},
-{
-  "directory": "E:\\projet\\test_curl",
-  "arguments": ["C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Tools\\MSVC\\14.38.33130\\bin\\HostX64\\x64\\cl.exe", "/c", "/nologo", "/MD", "/W3", "/WX", "/O2", "/std:c++latest", "/Iinclude", "/D_CRT_SECURE_NO_WARNINGS", "/DCURL_STATICLIB", "/EHsc", "/IC:\\Users\\Admin\\AppData\\Local\\.xmake\\packages\\l\\libcurl\\8.21.0\\917c16ddbf2942d1ae0e099942006c5b\\include", "/DNDEBUG", "/Fobuild\\.objs\\http_curl\\windows\\x64\\release\\src\\integrations\\curl\\NetworkCurl.cpp.obj", "src\\integrations\\curl\\NetworkCurl.cpp"],
-  "file": "src\\integrations\\curl\\NetworkCurl.cpp"
+  "arguments": ["C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Tools\\MSVC\\14.38.33130\\bin\\HostX64\\x64\\cl.exe", "/c", "/nologo", "/MD", "/W3", "/WX", "/O2", "/std:c++latest", "/Itests", "/Iinclude", "/D_CRT_SECURE_NO_WARNINGS", "/DCURL_STATICLIB", "/EHsc", "/IC:\\Users\\Admin\\AppData\\Local\\.xmake\\packages\\g\\gtest\\v1.17.0\\d847f60f60594398a67987de1d0eb1f5\\include", "/IC:\\Users\\Admin\\AppData\\Local\\.xmake\\packages\\l\\libcurl\\8.21.0\\917c16ddbf2942d1ae0e099942006c5b\\include", "/DNDEBUG", "/Fobuild\\.objs\\server_tests\\windows\\x64\\release\\tests\\server_test.cpp.obj", "tests\\server_test.cpp"],
+  "file": "tests\\server_test.cpp"
 },
 {
   "directory": "E:\\projet\\test_curl",
@@ -91,11 +86,16 @@
 },
 {
   "directory": "E:\\projet\\test_curl",
-  "arguments": ["C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Tools\\MSVC\\14.38.33130\\bin\\HostX64\\x64\\cl.exe", "/c", "/nologo", "/MD", "/W3", "/WX", "/O2", "/std:c++latest", "/Iinclude", "/D_CRT_SECURE_NO_WARNINGS", "/EHsc", "/DNDEBUG", "/Fobuild\\.objs\\core_unit_tests\\windows\\x64\\release\\tests\\core_unit_test.cpp.obj", "tests\\core_unit_test.cpp"],
-  "file": "tests\\core_unit_test.cpp"
+  "arguments": ["C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Tools\\MSVC\\14.38.33130\\bin\\HostX64\\x64\\cl.exe", "/c", "/nologo", "/MD", "/W3", "/WX", "/O2", "/std:c++latest", "/Iinclude", "/D_CRT_SECURE_NO_WARNINGS", "/EHsc", "/DNDEBUG", "/Fobuild\\.objs\\example_simple_server\\windows\\x64\\release\\examples\\simple_server\\main.cpp.obj", "examples\\simple_server\\main.cpp"],
+  "file": "examples\\simple_server\\main.cpp"
 },
 {
   "directory": "E:\\projet\\test_curl",
-  "arguments": ["C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Tools\\MSVC\\14.38.33130\\bin\\HostX64\\x64\\cl.exe", "/c", "/nologo", "/MD", "/W3", "/WX", "/O2", "/std:c++latest", "/Itests", "/Iinclude", "/D_CRT_SECURE_NO_WARNINGS", "/DCURL_STATICLIB", "/EHsc", "/IC:\\Users\\Admin\\AppData\\Local\\.xmake\\packages\\g\\gtest\\v1.17.0\\d847f60f60594398a67987de1d0eb1f5\\include", "/IC:\\Users\\Admin\\AppData\\Local\\.xmake\\packages\\l\\libcurl\\8.21.0\\917c16ddbf2942d1ae0e099942006c5b\\include", "/DNDEBUG", "/Fobuild\\.objs\\server_tests\\windows\\x64\\release\\tests\\server_test.cpp.obj", "tests\\server_test.cpp"],
-  "file": "tests\\server_test.cpp"
+  "arguments": ["C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Tools\\MSVC\\14.38.33130\\bin\\HostX64\\x64\\cl.exe", "/c", "/nologo", "/MD", "/W3", "/WX", "/O2", "/std:c++latest", "/Itests", "/Iinclude", "/D_CRT_SECURE_NO_WARNINGS", "/DCURL_STATICLIB", "/EHsc", "/IC:\\Users\\Admin\\AppData\\Local\\.xmake\\packages\\g\\gtest\\v1.17.0\\d847f60f60594398a67987de1d0eb1f5\\include", "/IC:\\Users\\Admin\\AppData\\Local\\.xmake\\packages\\l\\libcurl\\8.21.0\\917c16ddbf2942d1ae0e099942006c5b\\include", "/DNDEBUG", "/Fobuild\\.objs\\robustness_tests\\windows\\x64\\release\\tests\\robustness_test.cpp.obj", "tests\\robustness_test.cpp"],
+  "file": "tests\\robustness_test.cpp"
+},
+{
+  "directory": "E:\\projet\\test_curl",
+  "arguments": ["C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Tools\\MSVC\\14.38.33130\\bin\\HostX64\\x64\\cl.exe", "/c", "/nologo", "/MD", "/W3", "/WX", "/O2", "/std:c++latest", "/Itests", "/Iinclude", "/D_CRT_SECURE_NO_WARNINGS", "/EHsc", "/IC:\\Users\\Admin\\AppData\\Local\\.xmake\\packages\\g\\gtest\\v1.17.0\\d847f60f60594398a67987de1d0eb1f5\\include", "/DNDEBUG", "/Fobuild\\.objs\\route_duplicate_tests\\windows\\x64\\release\\tests\\route_duplicate_test.cpp.obj", "tests\\route_duplicate_test.cpp"],
+  "file": "tests\\route_duplicate_test.cpp"
 }]

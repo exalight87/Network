@@ -16,7 +16,8 @@ enum class DefaultErrorType {
 
 enum class HttpServerError {
 	NotSpecialized,
-	CloseRequested
+	CloseRequested,
+	WouldBlock
 };
 
 template<class ErrorType>

@@ -31,11 +31,15 @@ public:
     SocketConnection& operator=(const SocketConnection&) = delete;
     SocketConnection(SocketConnection&& other) noexcept
         : m_clientData(std::exchange(other.m_clientData, {})),
-        m_handle(std::exchange(other.m_handle, NULL)),
+        m_handle(std::exchange(other.m_handle, INVALID_SOCKET)),
         m_nbRequest(std::exchange(other.m_nbRequest, 0)),
         m_closeRequested(std::exchange(other.m_closeRequested, false)),
         m_onClose(std::exchange(other.m_onClose, {})),
-        m_recvBuffer(std::exchange(other.m_recvBuffer, {})) {};
+        m_recvBuffer(std::exchange(other.m_recvBuffer, {})),
+        m_pendingData(std::exchange(other.m_pendingData, {})),
+        m_requestStartedAt(std::exchange(other.m_requestStartedAt, {})),
+        m_idleSince(std::exchange(other.m_idleSince, {})),
+        m_hasRequestStarted(std::exchange(other.m_hasRequestStarted, false)) {};
     SocketConnection& operator=(SocketConnection&& other) noexcept
     {
         std::swap(m_clientData, other.m_clientData);
@@ -43,6 +47,11 @@ public:
         std::swap(m_nbRequest, other.m_nbRequest);
         std::swap(m_closeRequested, other.m_closeRequested);
         std::swap(m_onClose, other.m_onClose);
+        std::swap(m_recvBuffer, other.m_recvBuffer);
+        std::swap(m_pendingData, other.m_pendingData);
+        std::swap(m_requestStartedAt, other.m_requestStartedAt);
+        std::swap(m_idleSince, other.m_idleSince);
+        std::swap(m_hasRequestStarted, other.m_hasRequestStarted);
 
         return *this;
     };
@@ -60,18 +69,24 @@ public:
     Result<uint32_t, DefaultErrorType> port() const;
     constexpr SOCKET handle() const { return m_handle; };
 
-    constexpr auto timeout() const {
-        using namespace std::chrono_literals;
-        return 300s;  // 5 minute timeout for aggressive keep-alive
-    };
-
-    constexpr std::size_t maxRequest() const {
-        return 10000;  // More requests per connection
-    };
+    std::chrono::milliseconds keepAliveTimeout() const;
+    std::chrono::milliseconds requestTimeout() const;
+    std::chrono::milliseconds writeTimeout() const;
+    std::chrono::seconds timeout() const;
+    std::size_t maxRequest() const;
 
     constexpr std::size_t nbRequest() const {
         return m_nbRequest;
     };
+
+    std::vector<char>& pendingData() { return m_pendingData; }
+    const std::vector<char>& pendingData() const { return m_pendingData; }
+    bool hasPendingData() const { return !m_pendingData.empty(); }
+    void markRequestStarted();
+    void clearRequestStarted();
+    bool requestTimedOut(std::chrono::steady_clock::time_point now) const;
+    void markIdle();
+    bool keepAliveTimedOut(std::chrono::steady_clock::time_point now) const;
 
     // Set protocol preference for ALPN
     void setProtocolPreference(const std::vector<std::string>& protocols) {
@@ -129,4 +144,8 @@ private:
     std::function<void()> m_onClose;
     std::vector<std::string> m_protocolPreference;
     std::array<char, 16384> m_recvBuffer = {};
+    std::vector<char> m_pendingData;
+    std::chrono::steady_clock::time_point m_requestStartedAt{};
+    std::chrono::steady_clock::time_point m_idleSince{};
+    bool m_hasRequestStarted = false;
 };

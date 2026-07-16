@@ -1,6 +1,7 @@
 #include <cctype>
 #include <charconv>
 #include <chrono>
+#include <cstdlib>
 #include <cstring>
 #include <iostream>
 #include <optional>
@@ -15,8 +16,7 @@
 namespace
 {
 Result<HttpRequest, HttpServerError> _getHttpRequest(std::stop_token stopToken,
-                                                     std::shared_ptr<SocketConnection> connection,
-                                                     const std::vector<char>* initialData = nullptr);
+                                                     std::shared_ptr<SocketConnection> connection);
 bool _ShouldKeepAlive(const HttpRequest& request);
 bool _IsHttp2Connection(const std::vector<char>& data);
 void _HandleHttp2Connection(std::shared_ptr<SocketConnection> connection, const std::vector<char>& initialData);
@@ -24,6 +24,7 @@ std::optional<std::size_t> _ExpectedRequestSize(std::span<const char> data);
 bool _IEquals(std::string_view lhs, std::string_view rhs);
 std::string_view _Trim(std::string_view value);
 std::optional<std::string_view> _HeaderValue(const HttpRequest& request, std::string_view name);
+bool _TraceConnectionLifecycle();
 } // namespace
 
 Result<void, HttpServerError> HttpServer::start()
@@ -52,165 +53,154 @@ Result<void, HttpServerError> HttpServer::start()
     }
 
     m_pool = std::make_unique<ConnectionPool>(
-        [this](std::stop_token stopToken, std::shared_ptr<SocketConnection> connection)
+        [this](std::stop_token stopToken, std::shared_ptr<SocketConnection> connection) -> ConnectionPool::Action
         {
-            ScopeGuard guard(
-                [&connection]
-                {
-                    if (!connection->isClosed())
-                    {
-                        connection->disconnect();
-                    }
-                });
-
-            std::vector<char> initialData;
-            auto rData = connection->receive(initialData);
-
-            if (rData && !initialData.empty())
+            if (stopToken.stop_requested() || connection->isClosed() || connection->closeRequested())
             {
-                if (_IsHttp2Connection(initialData))
-                {
-                    std::cout << "HTTP/2 connection detected\n";
-                    connection->setHttp2(true);
-                    _HandleHttp2Connection(connection, initialData);
-                    return;
-                }
+                return ConnectionPool::Action::Close;
             }
 
-            while (!stopToken.stop_requested() && !connection->isClosed() && !connection->closeRequested())
+            HttpRequest request;
+            HttpResponse response;
+            auto routeResult = HttpRoute::MatchResult::NoMatch;
+            Result<HttpRequest, HttpServerError> rRequest;
+
+            try
             {
-                HttpRequest request;
-                HttpResponse response;
-                auto routeResult = HttpRoute::MatchResult::NoMatch;
-                Result<HttpRequest, HttpServerError> rRequest;
-
-                try
+                if (_IsHttp2Connection(connection->pendingData()))
                 {
-                    rRequest = _getHttpRequest(stopToken, connection, &initialData);
-                    initialData.clear();
-
-                    if (rRequest)
+                    if (_TraceConnectionLifecycle())
                     {
-                        request = std::move(rRequest).Data();
+                        std::cout << "HTTP/2 connection detected\n";
+                    }
+                    connection->setHttp2(true);
+                    _HandleHttp2Connection(connection, connection->pendingData());
+                    return ConnectionPool::Action::Close;
+                }
 
-                        if (auto connectionHeader = _HeaderValue(request, "Connection");
-                            connectionHeader && _IEquals(*connectionHeader, "close"))
+                rRequest = _getHttpRequest(stopToken, connection);
+
+                if (rRequest)
+                {
+                    request = std::move(rRequest).Data();
+
+                    auto rCLientIp = connection->ip();
+                    if (!rCLientIp)
+                    {
+                        std::cerr << "  Can't get ip from client connection\n";
+                    }
+                    if (_TraceConnectionLifecycle())
+                    {
+                        std::cout << std::format("  Request from [ {} ] on : {}\n",
+                                                 rCLientIp.DataOr("Unknown").c_str(), request.url.path);
+                    }
+
+                    auto cleanedPath = request.url.path.substr(1);
+                    auto splitedPath = std::views::split(cleanedPath, '/');
+                    for (auto& route : m_routes)
+                    {
+                        routeResult = route(splitedPath, request, response);
+                        if (routeResult != HttpRoute::MatchResult::NoMatch)
                         {
-                            std::cout << "  Connection closed received\n";
-                            auto result = connection->send(
-                                HttpResponse::CLOSE_CONNECTION.format(request.method != HttpRequest::HEAD));
-                            if (!result)
-                            {
-                                std::cerr << result.GetError().GetFormatedError() << "\n";
-                            }
                             break;
                         }
-
-                        auto rCLientIp = connection->ip();
-                        if (!rCLientIp)
-                        {
-                            std::cerr << "  Can't get ip from client connection\n";
-                        }
-                        std::cout << std::format("  Request from [ {} ] on : {}\n", rCLientIp.DataOr("Unknown").c_str(),
-                                                 request.url.path);
-
-                        auto cleanedPath = request.url.path.substr(1);
-                        auto splitedPath = std::views::split(cleanedPath, '/');
-                        for (auto& route : m_routes)
-                        {
-                            routeResult = route(splitedPath, request, response);
-                            if (routeResult != HttpRoute::MatchResult::NoMatch)
-                            {
-                                break;
-                            }
-                        }
                     }
-                }
-                catch (...)
-                {
-                    std::exception_ptr eptr = std::current_exception();
-                    try
-                    {
-                        if (eptr)
-                            std::rethrow_exception(eptr);
-                    }
-                    catch (const std::exception& e)
-                    {
-                        std::cout << "Caught exception: '" << e.what() << "'\nreturn 404 error\n";
-                    }
-                }
-
-                if (!rRequest && rRequest.GetError().type == HttpServerError::CloseRequested)
-                {
-                    connection->requestClose();
-                    break;
-                }
-                else if (!rRequest &&
-                         rRequest.GetError().GetFormatedError().find("Connection closed") != std::string::npos)
-                {
-                    if (!connection->isClosed())
-                    {
-                        response.code = 400;
-                        response.body = "Bad Request: Connection closed by client";
-                        auto result = connection->send(response.format(request.method != HttpRequest::HEAD));
-                        if (!result)
-                        {
-                            std::cerr << result.GetError().GetFormatedError() << "\n";
-                        }
-                    }
-                    break;
-                }
-                else if (!rRequest)
-                {
-                    response.code = 400;
-                    response.body = "Bad Request: " + rRequest.GetError().GetFormatedError();
-                }
-                else if (routeResult == HttpRoute::MatchResult::NoMatch)
-                {
-                    response = HttpResponse::CODE_404;
-                }
-
-                auto rIp = ip();
-                auto rPort = port();
-                if (rIp && rPort)
-                {
-                    response.headers["Host"] = std::format("{}:{}", rIp.Data().c_str(), rPort.Data());
-                }
-                response.headers["Handle"] = std::to_string(connection->handle());
-
-                const bool keepAlive =
-                    _ShouldKeepAlive(request) && !stopToken.stop_requested() && !connection->closeRequested();
-
-                if (keepAlive)
-                {
-                    response.headers["Connection"] = "keep-alive";
-                    response.headers["Keep-Alive"] =
-                        std::format("timeout={}, max={}", connection->timeout().count(), connection->maxRequest());
-                }
-                else
-                {
-                    response.headers["Connection"] = "close";
-                }
-
-                auto result = connection->send(response.format(request.method != HttpRequest::HEAD));
-
-                if (!result)
-                {
-                    std::cerr << result.GetError().GetFormatedError() << "\n";
-                }
-
-                if (!keepAlive)
-                {
-                    connection->requestClose();
-                    break;
-                }
-
-                if (connection->nbRequest() >= connection->maxRequest())
-                {
-                    connection->requestClose();
-                    break;
                 }
             }
+            catch (...)
+            {
+                std::exception_ptr eptr = std::current_exception();
+                try
+                {
+                    if (eptr)
+                        std::rethrow_exception(eptr);
+                }
+                catch (const std::exception& e)
+                {
+                    std::cout << "Caught exception: '" << e.what() << "'\nreturn 404 error\n";
+                    rRequest = Error(HttpServerError::NotSpecialized, e.what());
+                }
+            }
+
+            if (!rRequest && rRequest.GetError().type == HttpServerError::WouldBlock)
+            {
+                return ConnectionPool::Action::WaitForRead;
+            }
+            else if (!rRequest && rRequest.GetError().type == HttpServerError::CloseRequested)
+            {
+                connection->requestClose();
+                return ConnectionPool::Action::Close;
+            }
+            else if (!rRequest &&
+                     rRequest.GetError().GetFormatedError().find("Connection closed") != std::string::npos)
+            {
+                if (!connection->isClosed())
+                {
+                    response.code = 400;
+                    response.body = "Bad Request: Connection closed by client";
+                    response.headers["Connection"] = "close";
+                    auto result = connection->send(response.format(request.method != HttpRequest::HEAD));
+                    if (!result)
+                    {
+                        std::cerr << result.GetError().GetFormatedError() << "\n";
+                    }
+                }
+                return ConnectionPool::Action::Close;
+            }
+            else if (!rRequest)
+            {
+                response.code = 400;
+                response.body = "Bad Request: " + rRequest.GetError().GetFormatedError();
+            }
+            else if (routeResult == HttpRoute::MatchResult::NoMatch)
+            {
+                response = HttpResponse::CODE_404;
+            }
+
+            auto rIp = ip();
+            auto rPort = port();
+            if (rIp && rPort)
+            {
+                response.headers["Host"] = std::format("{}:{}", rIp.Data().c_str(), rPort.Data());
+            }
+            response.headers["Handle"] = std::to_string(connection->handle());
+
+            const bool willReachMaxRequests = connection->nbRequest() + 1 >= connection->maxRequest();
+            const bool keepAlive = rRequest && _ShouldKeepAlive(request) && !willReachMaxRequests &&
+                                   !stopToken.stop_requested() && !connection->closeRequested();
+
+            if (keepAlive)
+            {
+                response.headers["Connection"] = "keep-alive";
+                response.headers["Keep-Alive"] =
+                    std::format("timeout={}, max={}", connection->timeout().count(), connection->maxRequest());
+            }
+            else
+            {
+                response.headers["Connection"] = "close";
+            }
+
+            auto result = connection->send(response.format(request.method != HttpRequest::HEAD));
+
+            if (!result)
+            {
+                std::cerr << result.GetError().GetFormatedError() << "\n";
+                return ConnectionPool::Action::Close;
+            }
+
+            if (_TraceConnectionLifecycle())
+            {
+                std::cout << std::format("  Response sent on {}, decision={}\n", connection->handle(),
+                                         keepAlive ? "keep-alive" : "close");
+            }
+
+            if (!keepAlive)
+            {
+                connection->requestClose();
+                return ConnectionPool::Action::Close;
+            }
+
+            return connection->hasPendingData() ? ConnectionPool::Action::Requeue : ConnectionPool::Action::WaitForRead;
         });
 
     auto rSocketStart = NetworkSocket::start();
@@ -321,19 +311,9 @@ void HttpServer::enableAutoDocs()
 namespace
 {
 Result<HttpRequest, HttpServerError> _getHttpRequest(std::stop_token stopToken,
-                                                     std::shared_ptr<SocketConnection> connection,
-                                                     const std::vector<char>* initialData)
+                                                     std::shared_ptr<SocketConnection> connection)
 {
-    using namespace std::chrono_literals;
-
-    std::vector<char> data;
-
-    if (initialData && !initialData->empty())
-    {
-        data = *initialData;
-    }
-
-    auto begin = std::chrono::steady_clock::now();
+    auto& data = connection->pendingData();
 
     while (true)
     {
@@ -342,11 +322,12 @@ Result<HttpRequest, HttpServerError> _getHttpRequest(std::stop_token stopToken,
             return Error(HttpServerError::CloseRequested, "Stop requested");
         }
 
-        if ((std::chrono::steady_clock::now() - begin) > connection->timeout())
+        const auto now = std::chrono::steady_clock::now();
+        if (connection->requestTimedOut(now))
         {
             return Error(HttpServerError::CloseRequested,
-                         std::format("Connection {} waiting since more than {}s\n", connection->handle(),
-                                     connection->timeout().count()));
+                         std::format("Connection {} waiting for a complete request since more than {}ms\n",
+                                     connection->handle(), connection->requestTimeout().count()));
         }
 
         if (connection->nbRequest() >= connection->maxRequest())
@@ -371,16 +352,29 @@ Result<HttpRequest, HttpServerError> _getHttpRequest(std::stop_token stopToken,
 
         if (data.size() == beforeReceiveSize)
         {
-            std::this_thread::sleep_for(1ms);
-            continue;
+            return Error(HttpServerError::WouldBlock, "No complete request available yet");
+        }
+
+        if (!data.empty())
+        {
+            connection->markRequestStarted();
         }
     }
 
+    const auto expectedSize = _ExpectedRequestSize(data);
+    if (!expectedSize)
+    {
+        return Error(HttpServerError::WouldBlock, "No complete request available yet");
+    }
+
     HttpRequest request;
-    if (!request.parse(std::string_view(data.data(), data.size())))
+    if (!request.parse(std::string_view(data.data(), *expectedSize)))
     {
         return Error(HttpServerError::NotSpecialized, "Fail to parse http request");
     }
+
+    data.erase(data.begin(), data.begin() + static_cast<std::ptrdiff_t>(*expectedSize));
+    connection->clearRequestStarted();
 
     return request;
 }
@@ -429,6 +423,12 @@ bool _IsHttp2Connection(const std::vector<char>& data)
         return std::memcmp(data.data(), preface, 24) == 0;
     }
     return false;
+}
+
+bool _TraceConnectionLifecycle()
+{
+    const char* value = std::getenv("HTTP_SERVER_TRACE_CONNECTIONS");
+    return value != nullptr && *value != '\0' && std::string_view(value) != "0";
 }
 
 void _HandleHttp2Connection(std::shared_ptr<SocketConnection> connection, const std::vector<char>& initialData)

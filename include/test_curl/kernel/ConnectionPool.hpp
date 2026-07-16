@@ -17,7 +17,14 @@ class ConnectionPool
     friend NetworkSocket;
 
   public:
-    ConnectionPool(std::function<void(std::stop_token, std::shared_ptr<SocketConnection>)> callable);
+    enum class Action
+    {
+        Close,
+        WaitForRead,
+        Requeue
+    };
+
+    ConnectionPool(std::function<Action(std::stop_token, std::shared_ptr<SocketConnection>)> callable);
     ~ConnectionPool();
     std::size_t size() const
     {
@@ -28,15 +35,27 @@ class ConnectionPool
 
   private:
     void m_push(SocketConnection&& connection);
+    void m_push(std::shared_ptr<SocketConnection> connection);
+    void m_waitForRead(std::shared_ptr<SocketConnection> connection);
     void m_worker(std::stop_token stopToken);
+    void m_pollIdleConnections(std::stop_token stopToken);
+    bool m_initializeIdlePollWakeSignal();
+    void m_signalIdlePoller();
+    void m_drainIdlePollerSignal();
+    void m_closeIdlePollWakeSignal();
 
   private:
     mutable std::mutex m_mutex;
     std::vector<std::shared_ptr<SocketConnection>> m_connections;
+    std::vector<std::shared_ptr<SocketConnection>> m_idleConnections;
     std::queue<std::shared_ptr<SocketConnection>> m_workQueue;
     std::condition_variable m_workCondition;
+    std::condition_variable m_idleCondition;
     std::vector<std::jthread> m_workers;
     std::jthread m_cleaner;
-    std::function<void(std::stop_token, std::shared_ptr<SocketConnection>)> m_entryPoint;
+    std::jthread m_poller;
+    std::function<Action(std::stop_token, std::shared_ptr<SocketConnection>)> m_entryPoint;
     std::atomic_bool m_stop{false};
+    SOCKET m_idlePollWakeRead = INVALID_SOCKET;
+    SOCKET m_idlePollWakeWrite = INVALID_SOCKET;
 };

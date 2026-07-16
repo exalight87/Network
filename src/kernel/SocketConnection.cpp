@@ -1,5 +1,8 @@
 #include <format>
 #include <iostream>
+#include <cstdlib>
+#include <climits>
+#include <algorithm>
 #include <test_curl/kernel/SocketConnection.hpp>
 
 #ifdef _WIN32
@@ -15,10 +18,13 @@
 
 namespace
 {
+std::chrono::milliseconds _EnvDurationMs(const char* name, std::chrono::milliseconds defaultValue);
+std::size_t _EnvSize(const char* name, std::size_t defaultValue);
+
 #ifdef _WIN32
 int send_windows(SOCKET s, std::span<const char> buf, int flags)
 {
-    return send(s, buf.data(), static_cast<int>(buf.size()), 0);
+    return send(s, buf.data(), static_cast<int>(buf.size()), flags);
 }
 #endif
 
@@ -97,25 +103,61 @@ Result<void, DefaultErrorType> SocketConnection::receive(std::vector<char>& data
 {
     m_nbRequest++;
 
+    const auto deadline = std::chrono::steady_clock::now() + writeTimeout();
+    std::size_t totalSent = 0;
+
+    while (totalSent < data.size())
+    {
 #ifdef _WIN32
-    if (int error = send_windows(m_handle, data, 0); error < 0)
-    {
-        return Error(DefaultErrorType::NotSpecialized,
-                     std::format("Fail to send the data : [{}] {}", error, WSAGetLastError()));
-    }
-#else
-    ssize_t totalSent = 0;
-    while (totalSent < static_cast<ssize_t>(data.size()))
-    {
-        ssize_t sent = ::send(m_handle, data.data() + totalSent, data.size() - totalSent, 0);
-        if (sent < 0)
+        const auto remaining = data.size() - totalSent;
+        const int chunkSize = static_cast<int>(std::min<std::size_t>(remaining, static_cast<std::size_t>(INT_MAX)));
+        const int sent = send_windows(m_handle, data.subspan(totalSent, chunkSize), 0);
+        if (sent > 0)
         {
-            return Error(DefaultErrorType::NotSpecialized,
-                         std::format("Fail to send the data : [{}] {}", sent, strerror(errno)));
+            totalSent += static_cast<std::size_t>(sent);
+            continue;
         }
-        totalSent += sent;
-    }
+
+        const int error = WSAGetLastError();
+        if (error == WSAEWOULDBLOCK)
+        {
+            if (std::chrono::steady_clock::now() >= deadline)
+            {
+                return Error(DefaultErrorType::NotSpecialized, "Write timeout");
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+            continue;
+        }
+
+        return Error(DefaultErrorType::NotSpecialized,
+                     std::format("Fail to send the data : [{}] {}", sent, error));
+#else
+        ssize_t sent = ::send(m_handle, data.data() + totalSent, data.size() - totalSent, MSG_NOSIGNAL);
+        if (sent > 0)
+        {
+            totalSent += static_cast<std::size_t>(sent);
+            continue;
+        }
+
+        if (sent < 0 && (errno == EAGAIN || errno == EWOULDBLOCK))
+        {
+            if (std::chrono::steady_clock::now() >= deadline)
+            {
+                return Error(DefaultErrorType::NotSpecialized, "Write timeout");
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+            continue;
+        }
+
+        if (sent < 0 && errno == EINTR)
+        {
+            continue;
+        }
+
+        return Error(DefaultErrorType::NotSpecialized,
+                     std::format("Fail to send the data : [{}] {}", sent, strerror(errno)));
 #endif
+    }
 
     return {};
 }
@@ -167,14 +209,110 @@ Result<uint32_t, DefaultErrorType> SocketConnection::port() const
     return ntohs(m_clientData.sin_port);
 }
 
+std::chrono::milliseconds SocketConnection::keepAliveTimeout() const
+{
+    return _EnvDurationMs("HTTP_SERVER_KEEP_ALIVE_TIMEOUT_MS", std::chrono::milliseconds(2000));
+}
+
+std::chrono::milliseconds SocketConnection::requestTimeout() const
+{
+    return _EnvDurationMs("HTTP_SERVER_REQUEST_TIMEOUT_MS", std::chrono::milliseconds(5000));
+}
+
+std::chrono::milliseconds SocketConnection::writeTimeout() const
+{
+    return _EnvDurationMs("HTTP_SERVER_WRITE_TIMEOUT_MS", std::chrono::milliseconds(5000));
+}
+
+std::chrono::seconds SocketConnection::timeout() const
+{
+    return std::chrono::duration_cast<std::chrono::seconds>(keepAliveTimeout());
+}
+
+std::size_t SocketConnection::maxRequest() const
+{
+    return _EnvSize("HTTP_SERVER_MAX_REQUESTS_PER_CONNECTION", 10000);
+}
+
+void SocketConnection::markRequestStarted()
+{
+    if (!m_hasRequestStarted)
+    {
+        m_requestStartedAt = std::chrono::steady_clock::now();
+        m_hasRequestStarted = true;
+    }
+}
+
+void SocketConnection::clearRequestStarted()
+{
+    m_hasRequestStarted = false;
+}
+
+bool SocketConnection::requestTimedOut(std::chrono::steady_clock::time_point now) const
+{
+    return m_hasRequestStarted && (now - m_requestStartedAt) > requestTimeout();
+}
+
+void SocketConnection::markIdle()
+{
+    m_idleSince = std::chrono::steady_clock::now();
+}
+
+bool SocketConnection::keepAliveTimedOut(std::chrono::steady_clock::time_point now) const
+{
+    return m_idleSince.time_since_epoch().count() != 0 && (now - m_idleSince) > keepAliveTimeout();
+}
+
 namespace
 {
+
+std::chrono::milliseconds _EnvDurationMs(const char* name, std::chrono::milliseconds defaultValue)
+{
+    const char* value = std::getenv(name);
+    if (value == nullptr || *value == '\0')
+    {
+        return defaultValue;
+    }
+
+    try
+    {
+        const auto parsed = std::stoll(value);
+        if (parsed <= 0)
+        {
+            return defaultValue;
+        }
+        return std::chrono::milliseconds(parsed);
+    }
+    catch (...)
+    {
+        return defaultValue;
+    }
+}
+
+std::size_t _EnvSize(const char* name, std::size_t defaultValue)
+{
+    const char* value = std::getenv(name);
+    if (value == nullptr || *value == '\0')
+    {
+        return defaultValue;
+    }
+
+    try
+    {
+        const auto parsed = std::stoull(value);
+        return parsed == 0 ? defaultValue : static_cast<std::size_t>(parsed);
+    }
+    catch (...)
+    {
+        return defaultValue;
+    }
+}
 
 Result<std::string, DefaultErrorType> _GetIpFromSockaddr(const struct sockaddr_in* addr)
 {
     std::string ip;
-    ip.reserve(addr->sin_family == AF_INET ? 16 : 48);
-    if (inet_ntop(addr->sin_family, &addr->sin_addr, ip.data(), ip.capacity()) == NULL)
+    ip.resize(addr->sin_family == AF_INET ? 16 : 48);
+    if (inet_ntop(addr->sin_family, &addr->sin_addr, ip.data(), ip.size()) == NULL)
     {
 #ifdef _WIN32
         return Error(DefaultErrorType::NotSpecialized, std::format("Fail to get ip : {}", WSAGetLastError()));

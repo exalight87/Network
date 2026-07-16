@@ -1,5 +1,6 @@
 #include <atomic>
 #include <chrono>
+#include <cstdlib>
 #include <format>
 #include <iostream>
 #include <stdexcept>
@@ -16,6 +17,7 @@
 #include <arpa/inet.h>
 #include <cstring>
 #include <errno.h>
+#include <netinet/tcp.h>
 #include <netinet/in.h>
 #include <sys/epoll.h>
 #include <sys/socket.h>
@@ -25,6 +27,8 @@
 namespace
 {
 Result<std::string, DefaultErrorType> _GetIpFromSockaddr(const struct sockaddr_in* addr);
+bool _TraceConnectionLifecycle();
+void _ConfigureAcceptedSocket(SOCKET connection);
 }
 
 Result<void, DefaultErrorType> NetworkSocket::start()
@@ -135,7 +139,7 @@ Result<void, DefaultErrorType> NetworkSocket::start()
     }
 
     struct epoll_event event;
-    event.events = EPOLLIN | EPOLLET; // Edge-triggered mode
+    event.events = EPOLLIN;
     event.data.fd = m_handle;
     if (epoll_ctl(epollFd, EPOLL_CTL_ADD, m_handle, &event) == -1)
     {
@@ -176,16 +180,27 @@ Result<void, DefaultErrorType> NetworkSocket::start()
 #else
     while (m_running)
     {
-        auto isConnected = m_connect();
-        if (!isConnected)
+        fd_set readSet;
+        FD_ZERO(&readSet);
+        FD_SET(m_handle, &readSet);
+
+        timeval timeout{};
+        timeout.tv_sec = 0;
+        timeout.tv_usec = 100000;
+
+        const int selected = select(0, &readSet, nullptr, nullptr, &timeout);
+        if (selected > 0 && FD_ISSET(m_handle, &readSet))
         {
-            std::string errorMsg = isConnected.GetError().GetFormatedError();
-            if (errorMsg.find("Resource temporarily unavailable") == std::string::npos)
+            auto isConnected = m_connect();
+            if (!isConnected)
             {
-                std::cerr << errorMsg << '\n';
+                std::cerr << isConnected.GetError().GetFormatedError() << '\n';
             }
         }
-        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        else if (selected == SOCKET_ERROR && m_running)
+        {
+            std::cerr << std::format("Accept select failed: {}\n", WSAGetLastError());
+        }
     }
 #endif
 
@@ -317,7 +332,7 @@ NetworkSocket::~NetworkSocket()
 
 bool NetworkSocket::m_listen()
 {
-    return listen(m_handle, 20) == 0;
+    return listen(m_handle, SOMAXCONN) == 0;
 }
 
 Result<void, DefaultErrorType> NetworkSocket::m_connect()
@@ -327,112 +342,98 @@ Result<void, DefaultErrorType> NetworkSocket::m_connect()
         return Error(DefaultErrorType::NotSpecialized, "Pool unitialized");
     }
 
-    if (m_currentConnections >= m_maxConnections)
+    while (m_currentConnections < m_maxConnections)
     {
-        return {};
-    }
+        struct sockaddr_in clientData;
+        socklen_t clientSize = sizeof(clientData);
+        memset(&clientData, 0, sizeof(clientData));
 
-    struct sockaddr_in clientData;
-    socklen_t clientSize = sizeof(clientData);
-    // Reset clientData to ensure it's zeroed out
-    memset(&clientData, 0, sizeof(clientData));
-    clientSize = sizeof(clientData);
-
-    // Clear any previous errno
-    errno = 0;
-
-    // Check socket state before accept
-    int sockError = 0;
-    socklen_t sockErrorLen = sizeof(sockError);
-    getsockopt(m_handle, SOL_SOCKET, SO_ERROR, (char*)&sockError, &sockErrorLen);
-
-#ifdef _WIN32
-    SOCKET connection = accept(m_handle, (sockaddr*)&clientData, &clientSize);
-
-    if (connection == INVALID_SOCKET)
-    {
-        const int error = WSAGetLastError();
-
-        if (error == WSAEWOULDBLOCK)
-        {
-            return {};
-        }
-
-        if (!m_running)
-        {
-            return {};
-        }
-
-        return Error(DefaultErrorType::NotSpecialized, std::format("Fail to accept the connection : {}", error));
-    }
-#else
-    SOCKET connection = accept4(m_handle, (sockaddr*)&clientData, &clientSize, SOCK_CLOEXEC);
-    if (connection == INVALID_SOCKET)
-    {
-        connection = accept(m_handle, (sockaddr*)&clientData, &clientSize);
-        if (connection >= 0)
-        {
-            fcntl(connection, F_SETFD, FD_CLOEXEC);
-        }
-    }
-#endif
-
-    // Validate socket descriptor - reject fds reserved for stdin/stdout/stderr
-    // These can cause issues when running in background
-    if (connection >= 0 && connection < 3)
-    {
-#ifdef _WIN32
-        closesocket(connection);
-#else
-        close(connection);
-#endif
-        return {};
-    }
-
-    if (connection == INVALID_SOCKET)
-    {
 #ifndef _WIN32
-        if (errno == EAGAIN || errno == EWOULDBLOCK)
+        errno = 0;
+#endif
+
+#ifdef _WIN32
+        SOCKET connection = accept(m_handle, (sockaddr*)&clientData, &clientSize);
+
+        if (connection == INVALID_SOCKET)
         {
-            return {};
+            const int error = WSAGetLastError();
+
+            if (error == WSAEWOULDBLOCK)
+            {
+                return {};
+            }
+
+            if (!m_running)
+            {
+                return {};
+            }
+
+            return Error(DefaultErrorType::NotSpecialized, std::format("Fail to accept the connection : {}", error));
+        }
+#else
+        SOCKET connection = accept4(m_handle, (sockaddr*)&clientData, &clientSize, SOCK_CLOEXEC);
+        if (connection == INVALID_SOCKET)
+        {
+            if (errno == EAGAIN || errno == EWOULDBLOCK)
+            {
+                return {};
+            }
+
+            connection = accept(m_handle, (sockaddr*)&clientData, &clientSize);
+            if (connection >= 0)
+            {
+                fcntl(connection, F_SETFD, FD_CLOEXEC);
+            }
         }
 #endif
+
+        // Validate socket descriptor - reject fds reserved for stdin/stdout/stderr
+        // These can cause issues when running in background
+        if (connection >= 0 && connection < 3)
+        {
 #ifdef _WIN32
-        return Error(DefaultErrorType::NotSpecialized,
-                     std::format("Fail to accept the connection1 : {}", WSAGetLastError()));
+            closesocket(connection);
 #else
-        return Error(DefaultErrorType::NotSpecialized,
-                     std::format("Fail to accept the connection : {}", strerror(errno)));
+            close(connection);
 #endif
-    }
+            continue;
+        }
 
-    // Validate socket descriptor - only reject invalid values
-    if (connection < 0)
-    {
-        return {};
-    }
-
-    // Set accepted socket to blocking mode
-    // The accepted socket inherits O_NONBLOCK from the listening socket,
-    // so we need to explicitly set it to blocking
+        if (connection == INVALID_SOCKET)
+        {
+#ifndef _WIN32
+            if (errno == EAGAIN || errno == EWOULDBLOCK)
+            {
+                return {};
+            }
+#endif
 #ifdef _WIN32
-    u_long mode = 0;
-    ioctlsocket(connection, FIONBIO, &mode);
-    // Set receive timeout to prevent immediate failures
-    int timeout = 30000; // 30 seconds
-    setsockopt(connection, SOL_SOCKET, SO_RCVTIMEO, (const char*)&timeout, sizeof(timeout));
+            return Error(DefaultErrorType::NotSpecialized,
+                         std::format("Fail to accept the connection1 : {}", WSAGetLastError()));
 #else
-    int flags = fcntl(connection, F_GETFL, 0);
-    if (flags != -1)
-    {
-        fcntl(connection, F_SETFL, flags & ~O_NONBLOCK);
-    }
+            return Error(DefaultErrorType::NotSpecialized,
+                         std::format("Fail to accept the connection : {}", strerror(errno)));
 #endif
+        }
 
-    m_currentConnections++;
-    auto connPtr = std::make_shared<SocketConnection>(connection, clientData);
-    connPtr->onClose([this]() { m_currentConnections--; });
-    m_pool->m_push(std::move(*connPtr));
+        if (connection < 0)
+        {
+            continue;
+        }
+
+        _ConfigureAcceptedSocket(connection);
+
+        m_currentConnections++;
+        if (_TraceConnectionLifecycle())
+        {
+            std::cout << std::format("Accepted connection {} (active={})\n", connection, m_currentConnections.load());
+        }
+        auto connPtr = std::make_shared<SocketConnection>(connection, clientData);
+        connPtr->onClose([this]() { m_currentConnections--; });
+        m_pool->m_push(std::move(*connPtr));
+    }
+
     return {};
 }
 
@@ -452,5 +453,30 @@ Result<std::string, DefaultErrorType> _GetIpFromSockaddr(const struct sockaddr_i
     }
     ip.resize(strlen(ip.c_str()));
     return ip;
+}
+
+bool _TraceConnectionLifecycle()
+{
+    const char* value = std::getenv("HTTP_SERVER_TRACE_CONNECTIONS");
+    return value != nullptr && *value != '\0' && std::string_view(value) != "0";
+}
+
+void _ConfigureAcceptedSocket(SOCKET connection)
+{
+    int noDelay = 1;
+#ifdef _WIN32
+    setsockopt(connection, IPPROTO_TCP, TCP_NODELAY, reinterpret_cast<const char*>(&noDelay), sizeof(noDelay));
+
+    u_long mode = 1;
+    ioctlsocket(connection, FIONBIO, &mode);
+#else
+    setsockopt(connection, IPPROTO_TCP, TCP_NODELAY, &noDelay, sizeof(noDelay));
+
+    int flags = fcntl(connection, F_GETFL, 0);
+    if (flags != -1)
+    {
+        fcntl(connection, F_SETFL, flags | O_NONBLOCK);
+    }
+#endif
 }
 } // namespace

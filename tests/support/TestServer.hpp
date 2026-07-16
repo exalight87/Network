@@ -83,7 +83,12 @@ public:
 
     std::string baseUrl() const
     {
-        return "http://localhost:" + std::to_string(m_port);
+        return "http://127.0.0.1:" + std::to_string(m_port);
+    }
+
+    uint16_t port() const
+    {
+        return m_port;
     }
 
 private:
