@@ -128,7 +128,7 @@ async function loadBenchmarks() {
           <div><dt>Erreurs</dt><dd class="${result.errors === 0 ? 'metric-ok' : 'metric-error'}">${result.errors}</dd></div>
         </dl>`;
       article.querySelector('h3').textContent = result.label;
-      article.querySelector('.benchmark-card-title p').textContent = `${result.method} ${result.path} · concurrence ${result.concurrency}`;
+      article.querySelector('.benchmark-card-title p').textContent = `${result.method} ${result.path} · ${result.concurrency} client${result.concurrency > 1 ? 's' : ''} · ${formatNumber(result.requests, 0)} requêtes`;
       article.querySelector('.throughput strong').textContent = formatNumber(result.rps);
       return article;
     }));
@@ -137,7 +137,7 @@ async function loadBenchmarks() {
     $('#benchmark-date').textContent = generatedAt.toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' });
     $('#benchmark-commit').textContent = report.commit || '—';
     $('#benchmark-runner').textContent = report.environment ? `${report.environment.runner} · ${report.environment.cores} cœurs` : '—';
-    $('#benchmark-config').textContent = report.environment ? `${report.environment.build} · ${report.environment.node}` : '—';
+    $('#benchmark-config').textContent = report.environment?.build || '—';
     $('#benchmark-context').hidden = false;
     if (report.runUrl) {
       $('#benchmark-run').href = report.runUrl;
