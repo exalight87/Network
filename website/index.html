@@ -62,6 +62,32 @@
       </article>
     </section>
 
+    <section class="benchmarks" aria-labelledby="benchmarks-title">
+      <div class="benchmark-heading">
+        <div>
+          <p class="eyebrow">Mesures automatisées</p>
+          <h2 id="benchmarks-title">Les performances,<br><em>sans charger la démo.</em></h2>
+        </div>
+        <div class="benchmark-intro">
+          <p>Ces résultats indicatifs sont produits par la CI sur le vrai serveur compilé en release. Aucun test de charge n’est lancé depuis cette page.</p>
+          <span id="benchmark-status" class="benchmark-status">Chargement des résultats…</span>
+        </div>
+      </div>
+
+      <div id="benchmark-results" class="benchmark-grid" aria-live="polite">
+        <article class="benchmark-empty">Le premier rapport CI sera affiché ici.</article>
+      </div>
+
+      <div id="benchmark-context" class="benchmark-context" hidden>
+        <div><span>Exécution</span><strong id="benchmark-date">—</strong></div>
+        <div><span>Commit</span><strong id="benchmark-commit">—</strong></div>
+        <div><span>Environnement</span><strong id="benchmark-runner">—</strong></div>
+        <div><span>Configuration</span><strong id="benchmark-config">—</strong></div>
+        <a id="benchmark-run" href="#" target="_blank" rel="noopener" hidden>Voir le run CI ↗</a>
+      </div>
+      <p class="benchmark-note">Les runners CI partagés peuvent varier. Ces valeurs servent surtout à suivre les tendances et les régressions entre commits.</p>
+    </section>
+
     <section class="features">
       <article><span>01</span><h3>Routes expressives</h3><p>Méthodes, paramètres de chemin, query string et routes imbriquées.</p></article>
       <article><span>02</span><h3>Réponses maîtrisées</h3><p>Statuts, headers, JSON, HTML et fichiers statiques depuis la même API.</p></article>

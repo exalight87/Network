@@ -96,7 +96,63 @@ async function sendRequest() {
   }
 }
 
+function formatNumber(value, maximumFractionDigits = 1) {
+  return new Intl.NumberFormat('fr-FR', { maximumFractionDigits }).format(value);
+}
+
+async function loadBenchmarks() {
+  const status = $('#benchmark-status');
+  const container = $('#benchmark-results');
+  try {
+    const response = await fetch('./data/benchmarks.json', { cache: 'no-store' });
+    if (!response.ok) throw new Error('rapport indisponible');
+    const report = await response.json();
+    if (!Array.isArray(report.results) || report.results.length === 0) {
+      status.textContent = 'En attente du premier run CI';
+      return;
+    }
+
+    const peakRps = Math.max(...report.results.map((result) => result.rps));
+    container.replaceChildren(...report.results.map((result, index) => {
+      const article = document.createElement('article');
+      article.className = 'benchmark-card';
+      const width = Math.max(4, result.rps / peakRps * 100);
+      article.innerHTML = `
+        <div class="benchmark-card-title"><span>0${index + 1}</span><div><h3></h3><p></p></div></div>
+        <div class="throughput"><strong></strong><span>requêtes / seconde</span></div>
+        <div class="benchmark-bar"><i style="width:${width}%"></i></div>
+        <dl>
+          <div><dt>p50</dt><dd>${formatNumber(result.p50Ms, 2)} ms</dd></div>
+          <div><dt>p95</dt><dd>${formatNumber(result.p95Ms, 2)} ms</dd></div>
+          <div><dt>p99</dt><dd>${formatNumber(result.p99Ms, 2)} ms</dd></div>
+          <div><dt>Erreurs</dt><dd class="${result.errors === 0 ? 'metric-ok' : 'metric-error'}">${result.errors}</dd></div>
+        </dl>`;
+      article.querySelector('h3').textContent = result.label;
+      article.querySelector('.benchmark-card-title p').textContent = `${result.method} ${result.path} · concurrence ${result.concurrency}`;
+      article.querySelector('.throughput strong').textContent = formatNumber(result.rps);
+      return article;
+    }));
+
+    const generatedAt = new Date(report.generatedAt);
+    $('#benchmark-date').textContent = generatedAt.toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' });
+    $('#benchmark-commit').textContent = report.commit || '—';
+    $('#benchmark-runner').textContent = report.environment ? `${report.environment.runner} · ${report.environment.cores} cœurs` : '—';
+    $('#benchmark-config').textContent = report.environment ? `${report.environment.build} · ${report.environment.node}` : '—';
+    $('#benchmark-context').hidden = false;
+    if (report.runUrl) {
+      $('#benchmark-run').href = report.runUrl;
+      $('#benchmark-run').hidden = false;
+    }
+    status.textContent = 'Dernier run CI · terminé';
+    status.classList.add('ready');
+  } catch {
+    status.textContent = 'Résultats temporairement indisponibles';
+    status.classList.add('error');
+  }
+}
+
 document.querySelectorAll('.scenario').forEach((button) => button.addEventListener('click', () => selectScenario(button.dataset.scenario)));
 $('#send-request').addEventListener('click', sendRequest);
 document.addEventListener('keydown', (event) => { if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') sendRequest(); });
 selectScenario('ping');
+loadBenchmarks();
