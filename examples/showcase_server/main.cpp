@@ -1,146 +1,139 @@
+#include <cstdint>
 #include <iostream>
-#include <test_curl/kernel/HttpPage.hpp>
+#include <string>
+#include <string_view>
 #include <test_curl/kernel/HttpRequest.hpp>
 #include <test_curl/kernel/HttpResponse.hpp>
 #include <test_curl/kernel/HttpRoute.hpp>
 #include <test_curl/kernel/HttpServer.hpp>
 
+namespace
+{
+std::string jsonEscape(std::string_view value)
+{
+    std::string escaped;
+    escaped.reserve(value.size());
+    for (const unsigned char character : value)
+    {
+        switch (character)
+        {
+        case '"':
+            escaped += "\\\"";
+            break;
+        case '\\':
+            escaped += "\\\\";
+            break;
+        case '\n':
+            escaped += "\\n";
+            break;
+        case '\r':
+            escaped += "\\r";
+            break;
+        case '\t':
+            escaped += "\\t";
+            break;
+        default:
+            if (character >= 0x20)
+                escaped += static_cast<char>(character);
+        }
+    }
+    return escaped;
+}
+
+void json(HttpResponse& response, uint32_t code, std::string body)
+{
+    response.code = code;
+    response.body = std::move(body);
+    response.headers["Content-Type"] = "application/json; charset=utf-8";
+    response.headers["Cache-Control"] = "no-store";
+}
+} // namespace
+
 int main(int argc, char** argv)
 {
     uint16_t port = 9090;
     if (argc > 1)
-    {
         port = static_cast<uint16_t>(std::stoi(argv[1]));
-    }
 
     HttpServer server;
     server.port(port);
     server.enableAutoDocs();
 
     server.addRoute({.route = "ping",
-                     .callable = [](const HttpRequest& request, HttpResponse& response) -> bool
+                     .callable = [](const HttpRequest&, HttpResponse& response)
                      {
-                         response.body = "pong";
-                         response.code = 200;
+                         json(response, 200, R"({"status":"ok","message":"pong"})");
                          return true;
                      },
-                     .description = "Health check endpoint - returns 'pong'"});
+                     .description = "Health check returning a deterministic JSON response"});
 
-    server.addRoute({.route = "your-post-endpoint",
-                     .allowedMethods = {HttpRequest::Methods::POST},
-                     .callable = [](const HttpRequest& request, HttpResponse& response) -> bool
+    server.addRoute({.route = "users/{id}",
+                     .callable = [](const HttpRequest& request, HttpResponse& response)
                      {
-                         response.body = "POST received";
-                         response.code = 200;
+                         const auto id = request.pathParams.find("id");
+                         if (id == request.pathParams.end() || id->second.empty() || id->second.size() > 32)
+                         {
+                             json(response, 400, R"({"error":"invalid user id"})");
+                             return true;
+                         }
+                         const auto details = request.url.queryParams.find("details");
+                         const bool includeDetails = details != request.url.queryParams.end() && details->second == "true";
+                         std::string body = "{\"id\":\"" + jsonEscape(id->second) + "\",\"name\":\"Ada\"";
+                         if (includeDetails)
+                             body += R"(,"details":{"role":"engineer","active":true})";
+                         body += "}";
+                         json(response, 200, std::move(body));
                          return true;
                      },
-                     .description = "Example POST endpoint"});
+                     .description = "Demonstrates path and query parameters"});
 
-    server.addRoute({.route = "your-post-endpoint",
-                     .allowedMethods = {HttpRequest::Methods::POST},
-                     .callable = [](const HttpRequest& request, HttpResponse& response) -> bool
+    server.addRoute({.route = "echo",
+                     .allowedMethods = {HttpRequest::POST},
+                     .callable = [](const HttpRequest& request, HttpResponse& response)
                      {
-                         response.body = "POST received";
-                         response.code = 200;
+                         constexpr size_t maxBodySize = 4096;
+                         if (request.body.size() > maxBodySize)
+                         {
+                             json(response, 413, R"({"error":"body exceeds 4096 bytes"})");
+                             return true;
+                         }
+                         json(response, 200,
+                              "{\"received\":\"" + jsonEscape(request.body) +
+                                  "\",\"bytes\":" + std::to_string(request.body.size()) + "}");
                          return true;
                      },
-                     .description = "Example POST endpoint"});
+                     .description = "Echoes a bounded request body as JSON"});
 
-    server.addRoute(
-        {.route = "api",
-         .subRoutes = {{.route = "1",
-                        .callable = [](const HttpRequest& request, HttpResponse& response) -> bool
-                        {
-                            HttpPage page;
-                            page.setTitle("Api V1");
-                            page.setBody("<h1>Welcome to index v1</h1>");
-                            response.body = page;
-                            response.code = 200;
-                            return true;
-                        },
-                        .subRoutes = {{.route = "test",
-                                       .allowedMethods = {HttpRequest::Methods::POST},
-                                       .callable = [](const HttpRequest& request, HttpResponse& response) -> bool
-                                       {
-                                           HttpPage page;
-                                           page.setTitle("Test api V1");
-                                           page.setBody("<h1>Welcome to test post v1</h1>");
-                                           response.body = page;
-                                           response.code = 200;
-                                           return true;
-                                       }},
-                                      {.route = "test",
-                                       .allowedMethods = {HttpRequest::Methods::GET},
-                                       .callable = [](const HttpRequest& request, HttpResponse& response) -> bool
-                                       {
-                                           HttpPage page;
-                                           page.setTitle("Test api V1");
-                                           page.setBody("<h1>Welcome to test get v1</h1>");
-                                           response.body = page;
-                                           response.code = 200;
-                                           return true;
-                                       }}}},
-                       {.route = "2",
-                        .callable = [](const HttpRequest& request, HttpResponse& response) -> bool
-                        {
-                            HttpPage page;
-                            page.setTitle("Api V2");
-                            page.setBody("<h1>Welcome to index v2</h1>");
-                            response.body = page;
-                            response.code = 200;
-                            return true;
-                        },
-                        .subRoutes = {{.route = "test",
-                                       .callable = [](const HttpRequest& request, HttpResponse& response) -> bool
-                                       {
-                                           HttpPage page;
-                                           page.setTitle("Test api V2");
-                                           page.setBody("<h1>Welcome to test v2</h1>");
-                                           response.body = page;
-                                           response.code = 200;
-                                           return true;
-                                       }}}}}});
+    server.addRoute({.route = "errors/{code}",
+                     .callable = [](const HttpRequest& request, HttpResponse& response)
+                     {
+                         const auto value = request.pathParams.find("code");
+                         const std::string code = value == request.pathParams.end() ? "" : value->second;
+                         if (code == "400")
+                             json(response, 400, R"({"error":"demonstration bad request"})");
+                         else if (code == "404")
+                             json(response, 404, R"({"error":"demonstration resource not found"})");
+                         else if (code == "422")
+                             json(response, 422, R"({"error":"demonstration validation failure"})");
+                         else
+                             json(response, 400, R"({"error":"allowed codes are 400, 404 and 422"})");
+                         return true;
+                     },
+                     .description = "Returns one of the safe demonstration error responses"});
 
     server.addRoute({.route = "",
-                     .callable = [](const HttpRequest& request, HttpResponse& response) -> bool
+                     .callable = [](const HttpRequest&, HttpResponse& response)
                      {
-                         std::cout << "  Load index.html\n";
-                         if (!response.loadFile("website/index.html"))
-                         {
-                             return false;
-                         };
-                         response.code = 200;
+                         json(response, 200, R"({"name":"test-curl interactive demo","docs":"/docs"})");
                          return true;
-                     }});
+                     },
+                     .description = "Demo API metadata"});
 
-    server.addRoute({.route = "resources",
-                     .callable = [](const HttpRequest& request, HttpResponse& response) -> bool
-                     {
-                         std::cout << "  Load " + request.url.path + '\n';
-                         const std::string prefix = "/resources/";
-                         const auto resourcePath = request.url.path.starts_with(prefix)
-                                                       ? request.url.path.substr(prefix.size())
-                                                       : request.url.path;
-                         if (!response.loadFileFrom("resources", resourcePath))
-                         {
-                             return false;
-                         };
-                         response.code = 200;
-                         return true;
-                     }});
-
-    server.addRoute({.route = "foo/bar/toto",
-                     .callable = [](const HttpRequest& request, HttpResponse& response) -> bool
-                     {
-                         response.body = "Ok man";
-                         response.code = 200;
-                         return true;
-                     }});
-
-    if (auto rServer = server.start(); !rServer)
+    std::cout << "Demo HTTP server listening on 127.0.0.1:" << port << '\n';
+    if (auto result = server.start(); !result)
     {
-        std::cout << rServer.GetError().GetFormatedError();
+        std::cerr << result.GetError().GetFormatedError();
+        return 1;
     }
-
     return 0;
 }

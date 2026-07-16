@@ -1,0 +1,13 @@
+.git
+.github
+.vscode
+.vs
+.xmake
+build
+dist
+node_modules
+tests
+website
+resources
+server.log
+RAPPORT_CODE_REVIEW.md
