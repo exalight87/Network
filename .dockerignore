@@ -3,6 +3,7 @@
 .vscode
 .vs
 .xmake
+vsxmake*/
 build
 dist
 node_modules

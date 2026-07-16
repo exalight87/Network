@@ -1,0 +1,15 @@
+{
+  "name": "test-curl-demo",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "demo": "node scripts/demo.mjs",
+    "build": "node scripts/demo.mjs build",
+    "deploy": "node scripts/demo.mjs deploy",
+    "test:demo": "node --test scripts/demo.test.mjs"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

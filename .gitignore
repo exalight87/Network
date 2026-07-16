@@ -1,9 +1,10 @@
 # Xmake cache
 .xmake/
 build/
+dist/
+node_modules/
 vsxmake*/
 .vs/
 
 # MacOS Cache
 .DS_Store
-

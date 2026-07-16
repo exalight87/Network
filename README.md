@@ -104,6 +104,31 @@ curl http://localhost:9090/ping
 curl http://localhost:9090/docs
 ```
 
+## Démo web interactive
+
+Le dépôt contient une CLI locale qui produit le site statique dans `dist/` et déploie le serveur d'exemple dans un
+conteneur Docker durci. Elle utilise la CLI `site` installée sur la machine sans modifier son dépôt.
+
+Prérequis locaux : Node.js 18+, Xmake, OpenSSH, `tar`, la CLI `site` et une configuration créée avec `site config`.
+
+```bash
+npm run demo -- doctor
+npm run demo -- setup    # une seule fois : sous-domaine, Docker et Caddy
+npm run demo -- build
+npm run demo -- deploy
+```
+
+Le frontend et l'API partagent la même origine : la page appelle `/api-demo/*`, que Caddy transmet au conteneur
+écoutant uniquement sur `127.0.0.1:9090`. Les routes de démonstration sont :
+
+```text
+GET  /api-demo/ping
+GET  /api-demo/users/{id}?details=true
+POST /api-demo/echo
+GET  /api-demo/errors/{code}
+GET  /api-demo/docs
+```
+
 ## Exemple minimal
 
 ```cpp
