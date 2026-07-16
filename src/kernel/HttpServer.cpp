@@ -15,15 +15,44 @@
 
 namespace
 {
+enum class RequestReadStatus
+{
+    Complete,
+    WouldBlock,
+    BadRequest,
+    PayloadTooLarge,
+    HeadersTooLarge,
+    UriTooLong,
+    NotImplemented,
+    HttpVersionNotSupported
+};
+
+struct RequestSizeProbe
+{
+    RequestReadStatus status = RequestReadStatus::WouldBlock;
+    std::size_t size = 0;
+    std::string message;
+};
+
 Result<HttpRequest, HttpServerError> _getHttpRequest(std::stop_token stopToken,
                                                      std::shared_ptr<SocketConnection> connection);
 bool _ShouldKeepAlive(const HttpRequest& request);
 bool _IsHttp2Connection(const std::vector<char>& data);
 void _HandleHttp2Connection(std::shared_ptr<SocketConnection> connection, const std::vector<char>& initialData);
-std::optional<std::size_t> _ExpectedRequestSize(std::span<const char> data);
+RequestSizeProbe _ExpectedRequestSize(std::span<const char> data);
+HttpServerError _ToServerError(RequestReadStatus status);
+uint32_t _StatusCodeForError(HttpServerError error);
+std::size_t _EnvSize(const char* name, std::size_t defaultValue);
 bool _IEquals(std::string_view lhs, std::string_view rhs);
 std::string_view _Trim(std::string_view value);
 std::optional<std::string_view> _HeaderValue(const HttpRequest& request, std::string_view name);
+bool _ParseRequestLine(std::string_view requestLine, std::string_view& method, std::string_view& target,
+                       std::string_view& version);
+bool _IsKnownMethod(std::string_view method);
+bool _IsValidToken(std::string_view value);
+bool _ValidateHeaderName(std::string_view name);
+bool _ValidateHeaderValue(std::string_view value);
+bool _ParseContentLength(std::string_view value, std::size_t& contentLength);
 bool _TraceConnectionLifecycle();
 } // namespace
 
@@ -149,8 +178,9 @@ Result<void, HttpServerError> HttpServer::start()
             }
             else if (!rRequest)
             {
-                response.code = 400;
-                response.body = "Bad Request: " + rRequest.GetError().GetFormatedError();
+                response.code = _StatusCodeForError(rRequest.GetError().type);
+                response.body = rRequest.GetError().message.empty() ? "Bad Request" : rRequest.GetError().message;
+                response.headers["Connection"] = "close";
             }
             else if (routeResult == HttpRoute::MatchResult::NoMatch)
             {
@@ -337,9 +367,14 @@ Result<HttpRequest, HttpServerError> _getHttpRequest(std::stop_token stopToken,
                                      connection->maxRequest()));
         }
 
-        if (auto expectedSize = _ExpectedRequestSize(data); expectedSize && data.size() >= *expectedSize)
+        if (const auto probe = _ExpectedRequestSize(data); probe.status == RequestReadStatus::Complete &&
+                                                      data.size() >= probe.size)
         {
             break;
+        }
+        else if (probe.status != RequestReadStatus::WouldBlock && probe.status != RequestReadStatus::Complete)
+        {
+            return Error(_ToServerError(probe.status), probe.message);
         }
 
         const auto beforeReceiveSize = data.size();
@@ -362,18 +397,22 @@ Result<HttpRequest, HttpServerError> _getHttpRequest(std::stop_token stopToken,
     }
 
     const auto expectedSize = _ExpectedRequestSize(data);
-    if (!expectedSize)
+    if (expectedSize.status != RequestReadStatus::Complete)
     {
+        if (expectedSize.status != RequestReadStatus::WouldBlock)
+        {
+            return Error(_ToServerError(expectedSize.status), expectedSize.message);
+        }
         return Error(HttpServerError::WouldBlock, "No complete request available yet");
     }
 
     HttpRequest request;
-    if (!request.parse(std::string_view(data.data(), *expectedSize)))
+    if (!request.parse(std::string_view(data.data(), expectedSize.size)))
     {
         return Error(HttpServerError::NotSpecialized, "Fail to parse http request");
     }
 
-    data.erase(data.begin(), data.begin() + static_cast<std::ptrdiff_t>(*expectedSize));
+    data.erase(data.begin(), data.begin() + static_cast<std::ptrdiff_t>(expectedSize.size));
     connection->clearRequestStarted();
 
     return request;
@@ -510,53 +549,214 @@ void _HandleHttp2Connection(std::shared_ptr<SocketConnection> connection, const 
     return std::string(data.begin(), data.end());
 }
 
-std::optional<std::size_t> _ExpectedRequestSize(std::span<const char> data)
+RequestSizeProbe _ExpectedRequestSize(std::span<const char> data)
 {
+    const std::size_t maxHeaderBytes = _EnvSize("HTTP_SERVER_MAX_HEADER_BYTES", 16 * 1024);
+    const std::size_t maxHeaderCount = _EnvSize("HTTP_SERVER_MAX_HEADER_COUNT", 200);
+    const std::size_t maxBodyBytes = _EnvSize("HTTP_SERVER_MAX_BODY_SIZE_BYTES", 8 * 1024 * 1024);
+    const std::size_t maxTargetBytes = _EnvSize("HTTP_SERVER_MAX_TARGET_BYTES", 8 * 1024);
+
     if (data.empty())
     {
-        return std::nullopt;
+        return {.status = RequestReadStatus::WouldBlock};
     }
 
     const std::string_view request(data.data(), data.size());
+    const auto requestLineEnd = request.find("\r\n");
+    if (requestLineEnd == std::string_view::npos)
+    {
+        if (request.size() > maxHeaderBytes)
+        {
+            return {.status = RequestReadStatus::HeadersTooLarge, .message = "Request headers too large"};
+        }
+        return {.status = RequestReadStatus::WouldBlock};
+    }
+
+    std::string_view method;
+    std::string_view target;
+    std::string_view version;
+    if (!_ParseRequestLine(request.substr(0, requestLineEnd), method, target, version))
+    {
+        return {.status = RequestReadStatus::BadRequest, .message = "Malformed request line"};
+    }
+    if (!_IsValidToken(method))
+    {
+        return {.status = RequestReadStatus::BadRequest, .message = "Invalid HTTP method"};
+    }
+    if (!_IsKnownMethod(method))
+    {
+        return {.status = RequestReadStatus::NotImplemented, .message = "HTTP method not implemented"};
+    }
+    if (target.size() > maxTargetBytes)
+    {
+        return {.status = RequestReadStatus::UriTooLong, .message = "Request target too long"};
+    }
+    if (version != "HTTP/1.1" && version != "HTTP/1.0")
+    {
+        return {.status = RequestReadStatus::HttpVersionNotSupported, .message = "HTTP version not supported"};
+    }
+
     const auto headersEnd = request.find("\r\n\r\n");
     if (headersEnd == std::string_view::npos)
     {
-        return std::nullopt;
+        if (request.size() > maxHeaderBytes)
+        {
+            return {.status = RequestReadStatus::HeadersTooLarge, .message = "Request headers too large"};
+        }
+        return {.status = RequestReadStatus::WouldBlock};
+    }
+    if (headersEnd + 4 > maxHeaderBytes)
+    {
+        return {.status = RequestReadStatus::HeadersTooLarge, .message = "Request headers too large"};
     }
 
     std::size_t contentLength = 0;
-    std::size_t lineStart = request.find("\r\n");
-    if (lineStart == std::string_view::npos)
-    {
-        return std::nullopt;
-    }
-    lineStart += 2;
+    bool hasContentLength = false;
+    bool hasTransferEncoding = false;
+    bool hasHost = false;
+    std::size_t headerCount = 0;
+    std::size_t lineStart = requestLineEnd + 2;
 
     while (lineStart < headersEnd)
     {
         const auto lineEnd = request.find("\r\n", lineStart);
         if (lineEnd == std::string_view::npos || lineEnd > headersEnd)
         {
-            return std::nullopt;
+            return {.status = RequestReadStatus::WouldBlock};
         }
 
         const auto line = request.substr(lineStart, lineEnd - lineStart);
-        const auto separator = line.find(':');
-        if (separator != std::string_view::npos && _IEquals(_Trim(line.substr(0, separator)), "Content-Length"))
+        ++headerCount;
+        if (headerCount > maxHeaderCount)
         {
-            const auto value = _Trim(line.substr(separator + 1));
-            const auto begin = value.data();
-            const auto end = value.data() + value.size();
-            if (std::from_chars(begin, end, contentLength).ec != std::errc{})
+            return {.status = RequestReadStatus::HeadersTooLarge, .message = "Too many request headers"};
+        }
+
+        const auto separator = line.find(':');
+        if (separator == std::string_view::npos || separator == 0)
+        {
+            return {.status = RequestReadStatus::BadRequest, .message = "Malformed header"};
+        }
+        if (separator > 0 && (line[separator - 1] == ' ' || line[separator - 1] == '\t'))
+        {
+            return {.status = RequestReadStatus::BadRequest, .message = "Malformed header"};
+        }
+
+        const auto name = line.substr(0, separator);
+        const auto rawValue = line.substr(separator + 1);
+        const auto value = _Trim(rawValue);
+        if (!_ValidateHeaderName(name) || !_ValidateHeaderValue(rawValue))
+        {
+            return {.status = RequestReadStatus::BadRequest, .message = "Malformed header"};
+        }
+
+        if (_IEquals(name, "Content-Length"))
+        {
+            if (hasContentLength)
             {
-                return std::nullopt;
+                return {.status = RequestReadStatus::BadRequest, .message = "Duplicate Content-Length"};
             }
+            if (!_ParseContentLength(value, contentLength))
+            {
+                return {.status = RequestReadStatus::BadRequest, .message = "Invalid Content-Length"};
+            }
+            hasContentLength = true;
+        }
+        else if (_IEquals(name, "Transfer-Encoding"))
+        {
+            hasTransferEncoding = true;
+        }
+        else if (_IEquals(name, "Host"))
+        {
+            hasHost = !value.empty();
         }
 
         lineStart = lineEnd + 2;
     }
 
-    return headersEnd + 4 + contentLength;
+    if (version == "HTTP/1.1" && !hasHost)
+    {
+        return {.status = RequestReadStatus::BadRequest, .message = "Missing Host header"};
+    }
+    if (hasTransferEncoding && hasContentLength)
+    {
+        return {.status = RequestReadStatus::BadRequest, .message = "Transfer-Encoding cannot be combined with Content-Length"};
+    }
+    if (hasTransferEncoding)
+    {
+        return {.status = RequestReadStatus::NotImplemented, .message = "Transfer-Encoding is not supported"};
+    }
+    if (contentLength > maxBodyBytes)
+    {
+        return {.status = RequestReadStatus::PayloadTooLarge, .message = "Request body too large"};
+    }
+
+    return {.status = RequestReadStatus::Complete, .size = headersEnd + 4 + contentLength};
+}
+
+HttpServerError _ToServerError(RequestReadStatus status)
+{
+    switch (status)
+    {
+    case RequestReadStatus::BadRequest:
+        return HttpServerError::BadRequest;
+    case RequestReadStatus::PayloadTooLarge:
+        return HttpServerError::PayloadTooLarge;
+    case RequestReadStatus::HeadersTooLarge:
+        return HttpServerError::HeadersTooLarge;
+    case RequestReadStatus::UriTooLong:
+        return HttpServerError::UriTooLong;
+    case RequestReadStatus::NotImplemented:
+        return HttpServerError::NotImplemented;
+    case RequestReadStatus::HttpVersionNotSupported:
+        return HttpServerError::HttpVersionNotSupported;
+    case RequestReadStatus::Complete:
+    case RequestReadStatus::WouldBlock:
+        break;
+    }
+    return HttpServerError::BadRequest;
+}
+
+uint32_t _StatusCodeForError(HttpServerError error)
+{
+    switch (error)
+    {
+    case HttpServerError::PayloadTooLarge:
+        return 413;
+    case HttpServerError::UriTooLong:
+        return 414;
+    case HttpServerError::HeadersTooLarge:
+        return 431;
+    case HttpServerError::NotImplemented:
+        return 501;
+    case HttpServerError::HttpVersionNotSupported:
+        return 505;
+    case HttpServerError::BadRequest:
+    case HttpServerError::NotSpecialized:
+    case HttpServerError::CloseRequested:
+    case HttpServerError::WouldBlock:
+        return 400;
+    }
+    return 400;
+}
+
+std::size_t _EnvSize(const char* name, std::size_t defaultValue)
+{
+    const char* value = std::getenv(name);
+    if (value == nullptr || *value == '\0')
+    {
+        return defaultValue;
+    }
+
+    try
+    {
+        const auto parsed = std::stoull(value);
+        return parsed == 0 ? defaultValue : static_cast<std::size_t>(parsed);
+    }
+    catch (...)
+    {
+        return defaultValue;
+    }
 }
 
 bool _IEquals(std::string_view lhs, std::string_view rhs)
@@ -574,6 +774,111 @@ bool _IEquals(std::string_view lhs, std::string_view rhs)
         }
     }
     return true;
+}
+
+bool _ParseRequestLine(std::string_view requestLine, std::string_view& method, std::string_view& target,
+                       std::string_view& version)
+{
+    if (requestLine.empty())
+    {
+        return false;
+    }
+
+    for (const unsigned char c : requestLine)
+    {
+        if (c <= 31 || c == 127)
+        {
+            return false;
+        }
+    }
+
+    const auto firstSpace = requestLine.find(' ');
+    if (firstSpace == std::string_view::npos || firstSpace == 0)
+    {
+        return false;
+    }
+
+    const auto secondSpace = requestLine.find(' ', firstSpace + 1);
+    if (secondSpace == std::string_view::npos || secondSpace == firstSpace + 1)
+    {
+        return false;
+    }
+
+    if (requestLine.find(' ', secondSpace + 1) != std::string_view::npos || secondSpace + 1 == requestLine.size())
+    {
+        return false;
+    }
+
+    method = requestLine.substr(0, firstSpace);
+    target = requestLine.substr(firstSpace + 1, secondSpace - firstSpace - 1);
+    version = requestLine.substr(secondSpace + 1);
+    return true;
+}
+
+bool _IsKnownMethod(std::string_view method)
+{
+    return _IEquals(method, "GET") || _IEquals(method, "POST") || _IEquals(method, "PUT") ||
+           _IEquals(method, "DELETE") || _IEquals(method, "PATCH") || _IEquals(method, "HEAD") ||
+           _IEquals(method, "OPTIONS");
+}
+
+bool _IsValidToken(std::string_view value)
+{
+    if (value.empty())
+    {
+        return false;
+    }
+
+    for (const unsigned char c : value)
+    {
+        const bool isTokenChar = std::isalnum(c) || c == '!' || c == '#' || c == '$' || c == '%' || c == '&' ||
+                                 c == '\'' || c == '*' || c == '+' || c == '-' || c == '.' || c == '^' ||
+                                 c == '_' || c == '`' || c == '|' || c == '~';
+        if (!isTokenChar)
+        {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+bool _ValidateHeaderName(std::string_view name)
+{
+    return _IsValidToken(name);
+}
+
+bool _ValidateHeaderValue(std::string_view value)
+{
+    for (const unsigned char c : value)
+    {
+        if ((c < 32 && c != '\t') || c == 127)
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
+bool _ParseContentLength(std::string_view value, std::size_t& contentLength)
+{
+    if (value.empty())
+    {
+        return false;
+    }
+
+    for (const unsigned char c : value)
+    {
+        if (!std::isdigit(c))
+        {
+            return false;
+        }
+    }
+
+    const auto begin = value.data();
+    const auto end = value.data() + value.size();
+    auto [ptr, ec] = std::from_chars(begin, end, contentLength);
+    return ec == std::errc{} && ptr == end;
 }
 
 std::string_view _Trim(std::string_view value)

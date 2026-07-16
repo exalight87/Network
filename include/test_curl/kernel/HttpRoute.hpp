@@ -65,6 +65,12 @@ inline HttpRoute::MatchResult HttpRoute::operator()(Range currentRoute_, HttpReq
 
             if (callable && response.empty())
             {
+                if (allowedMethods.empty() && request.method != HttpRequest::GET)
+                {
+                    response.code = 405;
+                    response.headers["Allow"] = "GET";
+                    return MatchResult::MethodNotAllowed;
+                }
                 return callable.value()(request, response) ? MatchResult::Matched : MatchResult::NoMatch;
             }
         }
@@ -152,6 +158,12 @@ inline HttpRoute::MatchResult HttpRoute::operator()(Range currentRoute_, HttpReq
 
     if (callable && response.empty())
     {
+        if (allowedMethods.empty() && request.method != HttpRequest::GET)
+        {
+            response.code = 405;
+            response.headers["Allow"] = "GET";
+            return MatchResult::MethodNotAllowed;
+        }
         return callable.value()(request, response) ? MatchResult::Matched : MatchResult::NoMatch;
     }
 

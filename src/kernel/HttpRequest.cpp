@@ -3,6 +3,7 @@
 #include <charconv>
 #include <format>
 #include <iostream>
+#include <optional>
 #include <ranges>
 #include <sstream>
 #include <string_view>
@@ -14,6 +15,13 @@ namespace
 HttpRequest::Methods _GetMethodFromString(std::string_view methodStr);
 URL::Protocols _GetProtocolFromString(std::string_view protocoldStr);
 std::string _UrlDecode(std::string_view encoded);
+bool _ParseRequestLine(std::string_view requestLine, std::string_view& method, std::string_view& target,
+                       std::string_view& version);
+bool _ValidateHttpVersion(std::string_view version);
+bool _ValidateHeaderName(std::string_view name);
+bool _ValidateHeaderValue(std::string_view value);
+bool _ParseContentLength(std::string_view value, std::size_t& contentLength);
+bool _IEquals(std::string_view lhs, std::string_view rhs);
 std::string _Trim(std::string_view value);
 std::string _ToUpper(std::string_view value);
 } // namespace
@@ -115,13 +123,10 @@ bool HttpRequest::parse(std::string_view request)
         return false;
     }
 
-    std::string requestLine(request.substr(0, requestLineEnd));
-    std::istringstream requestLineStream(requestLine);
-    std::string methodStr;
-    std::string urlStr;
-    std::string versionStr;
-
-    if (!(requestLineStream >> methodStr >> urlStr >> versionStr))
+    std::string_view methodStr;
+    std::string_view urlStr;
+    std::string_view versionStr;
+    if (!_ParseRequestLine(request.substr(0, requestLineEnd), methodStr, urlStr, versionStr))
     {
         return false;
     }
@@ -132,8 +137,13 @@ bool HttpRequest::parse(std::string_view request)
         return false;
     }
 
+    if (!_ValidateHttpVersion(versionStr))
+    {
+        return false;
+    }
+
     url.parse(urlStr);
-    httpVersion = versionStr;
+    httpVersion = std::string(versionStr);
 
     const auto headersEnd = request.find("\r\n\r\n"sv);
     if (headersEnd == std::string_view::npos)
@@ -143,6 +153,10 @@ bool HttpRequest::parse(std::string_view request)
 
     // PARSE HEADERS
     std::size_t lineStart = requestLineEnd + 2;
+    bool hasHost = false;
+    bool hasContentLength = false;
+    bool hasTransferEncoding = false;
+    std::size_t contentLength = 0;
     while (lineStart < headersEnd)
     {
         const auto lineEnd = request.find("\r\n"sv, lineStart);
@@ -153,13 +167,52 @@ bool HttpRequest::parse(std::string_view request)
 
         const auto header = request.substr(lineStart, lineEnd - lineStart);
         const auto separator = header.find(':');
-        if (separator == std::string_view::npos)
+        if (separator == std::string_view::npos || separator == 0)
+        {
+            return false;
+        }
+        if (separator > 0 && (header[separator - 1] == ' ' || header[separator - 1] == '\t'))
         {
             return false;
         }
 
-        headers.emplace(std::string(header.substr(0, separator)), _Trim(header.substr(separator + 1)));
+        const auto name = header.substr(0, separator);
+        const auto rawValue = header.substr(separator + 1);
+        const auto value = _Trim(rawValue);
+
+        if (!_ValidateHeaderName(name) || !_ValidateHeaderValue(rawValue))
+        {
+            return false;
+        }
+
+        if (_IEquals(name, "Host"))
+        {
+            hasHost = !value.empty();
+        }
+        else if (_IEquals(name, "Content-Length"))
+        {
+            if (hasContentLength || !_ParseContentLength(value, contentLength))
+            {
+                return false;
+            }
+            hasContentLength = true;
+        }
+        else if (_IEquals(name, "Transfer-Encoding"))
+        {
+            hasTransferEncoding = true;
+        }
+
+        headers.emplace(std::string(name), std::string(value));
         lineStart = lineEnd + 2;
+    }
+
+    if (httpVersion == "HTTP/1.1" && !hasHost)
+    {
+        return false;
+    }
+    if (hasTransferEncoding)
+    {
+        return false;
     }
 
     // PARSE BODY
@@ -167,6 +220,10 @@ bool HttpRequest::parse(std::string_view request)
     if (bodyStart < request.size())
     {
         body = std::string(request.substr(bodyStart));
+    }
+    if (hasContentLength && body.size() != contentLength)
+    {
+        return false;
     }
 
     return true;
@@ -256,6 +313,121 @@ std::string _UrlDecode(std::string_view encoded)
     }
 
     return result;
+}
+
+bool _ParseRequestLine(std::string_view requestLine, std::string_view& method, std::string_view& target,
+                       std::string_view& version)
+{
+    if (requestLine.empty())
+    {
+        return false;
+    }
+
+    for (const unsigned char c : requestLine)
+    {
+        if (c <= 31 || c == 127)
+        {
+            return false;
+        }
+    }
+
+    const auto firstSpace = requestLine.find(' ');
+    if (firstSpace == std::string_view::npos || firstSpace == 0)
+    {
+        return false;
+    }
+
+    const auto secondSpace = requestLine.find(' ', firstSpace + 1);
+    if (secondSpace == std::string_view::npos || secondSpace == firstSpace + 1)
+    {
+        return false;
+    }
+
+    if (requestLine.find(' ', secondSpace + 1) != std::string_view::npos || secondSpace + 1 == requestLine.size())
+    {
+        return false;
+    }
+
+    method = requestLine.substr(0, firstSpace);
+    target = requestLine.substr(firstSpace + 1, secondSpace - firstSpace - 1);
+    version = requestLine.substr(secondSpace + 1);
+    return true;
+}
+
+bool _ValidateHttpVersion(std::string_view version)
+{
+    return version == "HTTP/1.1" || version == "HTTP/1.0";
+}
+
+bool _ValidateHeaderName(std::string_view name)
+{
+    if (name.empty())
+    {
+        return false;
+    }
+
+    for (const unsigned char c : name)
+    {
+        const bool isTokenChar = std::isalnum(c) || c == '!' || c == '#' || c == '$' || c == '%' || c == '&' ||
+                                 c == '\'' || c == '*' || c == '+' || c == '-' || c == '.' || c == '^' ||
+                                 c == '_' || c == '`' || c == '|' || c == '~';
+        if (!isTokenChar)
+        {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+bool _ValidateHeaderValue(std::string_view value)
+{
+    for (const unsigned char c : value)
+    {
+        if ((c < 32 && c != '\t') || c == 127)
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
+bool _ParseContentLength(std::string_view value, std::size_t& contentLength)
+{
+    if (value.empty())
+    {
+        return false;
+    }
+
+    for (const unsigned char c : value)
+    {
+        if (!std::isdigit(c))
+        {
+            return false;
+        }
+    }
+
+    const auto begin = value.data();
+    const auto end = value.data() + value.size();
+    auto [ptr, ec] = std::from_chars(begin, end, contentLength);
+    return ec == std::errc{} && ptr == end;
+}
+
+bool _IEquals(std::string_view lhs, std::string_view rhs)
+{
+    if (lhs.size() != rhs.size())
+    {
+        return false;
+    }
+
+    for (std::size_t i = 0; i < lhs.size(); ++i)
+    {
+        if (std::tolower(static_cast<unsigned char>(lhs[i])) != std::tolower(static_cast<unsigned char>(rhs[i])))
+        {
+            return false;
+        }
+    }
+    return true;
 }
 
 std::string _Trim(std::string_view value)

@@ -17,7 +17,13 @@ enum class DefaultErrorType {
 enum class HttpServerError {
 	NotSpecialized,
 	CloseRequested,
-	WouldBlock
+	WouldBlock,
+	BadRequest,
+	PayloadTooLarge,
+	HeadersTooLarge,
+	UriTooLong,
+	NotImplemented,
+	HttpVersionNotSupported
 };
 
 template<class ErrorType>
