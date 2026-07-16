@@ -37,6 +37,10 @@ public:
     void port( uint32_t port );
     Result<uint32_t, DefaultErrorType> port() const;
 
+    // Set maximum concurrent connections (default: 1000)
+    void maxConnections(uint32_t max);
+    uint32_t maxConnections() const;
+
     // Blocking infinite loop responsible for handling connections
     [[nodiscard]] Result<void, DefaultErrorType> start();
     Result<void, DefaultErrorType> stop();
@@ -52,4 +56,6 @@ protected:
 #endif
     SOCKET m_handle;
     std::unique_ptr<ConnectionPool> m_pool;
+    uint32_t m_maxConnections = 1000;
+    std::atomic<uint32_t> m_currentConnections = 0;
 };

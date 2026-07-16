@@ -15,6 +15,7 @@
 #include <chrono>
 #include <thread>
 #include <utility>
+#include <functional>
 #include <array>
 
 class NetworkSocket;
@@ -22,6 +23,7 @@ class NetworkSocket;
 class SocketConnection
 {
     friend NetworkSocket;
+    friend class std::shared_ptr<SocketConnection>;
 
 public:
     SocketConnection(const SocketConnection&) = delete;
@@ -29,12 +31,16 @@ public:
     SocketConnection(SocketConnection&& other) noexcept
         : m_clientData(std::exchange(other.m_clientData, {})),
         m_handle(std::exchange(other.m_handle, NULL)),
-        m_nbRequest(std::exchange(other.m_nbRequest, 0)) {};
+        m_nbRequest(std::exchange(other.m_nbRequest, 0)),
+        m_closeRequested(std::exchange(other.m_closeRequested, false)),
+        m_onClose(std::exchange(other.m_onClose, {})) {};
     SocketConnection& operator=(SocketConnection&& other) noexcept
     {
         std::swap(m_clientData, other.m_clientData);
         std::swap(m_handle, other.m_handle);
         std::swap(m_nbRequest, other.m_nbRequest);
+        std::swap(m_closeRequested, other.m_closeRequested);
+        std::swap(m_onClose, other.m_onClose);
 
         return *this;
     };
@@ -63,11 +69,7 @@ public:
 
     constexpr bool isClosed() const
     {
-#ifdef _WIN32
-        return m_handle == NULL;
-#else
-        return m_handle == INVALID_SOCKET || m_handle < 0;
-#endif
+        return m_handle == INVALID_SOCKET;
     }
 
     constexpr bool closeRequested() const
@@ -80,7 +82,11 @@ public:
         m_closeRequested = true;
     }
 
-private:
+    void onClose(std::function<void()> callback)
+    {
+        m_onClose = callback;
+    }
+
 #ifdef _WIN32
     SocketConnection(SOCKET handle, SOCKADDR_IN clientData);
 #else
@@ -94,7 +100,8 @@ private:
     struct sockaddr_in m_clientData;
 #endif
     SOCKET m_handle;
-    bool m_closeRequested;
-    std::array<char, 512> m_recvBuffer;
     std::size_t m_nbRequest;
+    bool m_closeRequested;
+    std::function<void()> m_onClose;
+    std::array<char, 16384> m_recvBuffer;
 };

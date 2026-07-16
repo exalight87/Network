@@ -9,20 +9,30 @@ ConnectionPool::ConnectionPool(std::function< void(std::stop_token, std::shared_
     m_cleaner = std::jthread([this](std::stop_token stopToken)
         {
             auto removeClosedConnections = [this]() {
-                auto removePredicate = [this](const auto& connection, std::size_t idx) {
-                    if (connection->isClosed()) {
-                        m_listeners[idx].request_stop();
-                        return true;
+                std::vector<std::size_t> toRemove;
+                
+                {
+                    std::lock_guard<std::mutex> lock(m_mutex);
+                    for (std::size_t idx = 0; idx < m_connections.size(); ++idx) {
+                        if (m_connections[idx]->isClosed()) {
+                            toRemove.push_back(idx);
+                        }
                     }
-                    return false;
-                    };
+                }
 
-                for (std::size_t idx = 0; idx < m_connections.size(); ++idx) {
-                    if (removePredicate(m_connections[idx], idx)) {
-                        std::lock_guard<std::mutex> lock(m_mutex);
-                        m_connections.erase(m_connections.begin() + idx);
-                        m_listeners.erase(m_listeners.begin() + idx);
-                        --idx; // Adjust index after erase
+                for (auto it = toRemove.rbegin(); it != toRemove.rend(); ++it) {
+                    std::size_t idx = *it;
+                    std::lock_guard<std::mutex> lock(m_mutex);
+                    if (idx < m_listeners.size()) {
+                        m_listeners[idx].request_stop();
+                    }
+                    if (idx < m_connections.size()) {
+                        std::swap(m_connections[idx], m_connections.back());
+                        m_connections.pop_back();
+                        if (idx < m_listeners.size()) {
+                            std::swap(m_listeners[idx], m_listeners.back());
+                            m_listeners.pop_back();
+                        }
                     }
                 }
             };
@@ -48,8 +58,14 @@ void ConnectionPool::stop()
 {
     std::lock_guard<std::mutex> lock(m_mutex);
 
+    for (auto& listener : m_listeners) {
+        listener.request_stop();
+    }
+    m_listeners.clear();
+    
     for (auto& connection : m_connections)
     {
         connection->disconnect();
     }
+    m_connections.clear();
 }

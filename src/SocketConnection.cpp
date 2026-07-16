@@ -110,6 +110,7 @@ Result<void, DefaultErrorType> SocketConnection::disconnect()
 #endif
 
     m_handle = INVALID_SOCKET;
+    if (m_onClose) m_onClose();
     return {};
 }
 

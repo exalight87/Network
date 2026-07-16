@@ -52,21 +52,30 @@ template<class... Ts> overload(Ts...) -> overload<Ts...>; // line not needed in 
 
 std::string HttpResponse::format()  const
 {
-    std::string response = "HTTP/1.1 " + std::to_string(code) + "\r\n";
+    std::string pageStr;
+    std::visit(overload{
+         [&pageStr](const std::string& str) { pageStr = str; },
+         [&pageStr](const HttpPage& page) { pageStr = page.str(); }
+    }, body);
+
+    size_t bodySize = pageStr.size();
+    size_t headerSize = 20;
+    for (const auto& [key, value] : headers)
+    {
+        headerSize += key.size() + value.size() + 4;
+    }
+
+    std::string response;
+    response.reserve(headerSize + bodySize + 64);
+
+    response = std::format("HTTP/1.1 {}\r\n", code);
 
     for (const auto& [key, value] : headers)
     {
         response += std::format("{}: {}\r\n", key, value);
     }
 
-    std::string pageStr;
-    std::visit(overload{
-         [&pageStr](const std::string& str) { pageStr = str; },
-         [&pageStr](const HttpPage& page) { pageStr = page.str(); }
-        }, body);
-
-    response += std::format("{}: {}\r\n\r\n", "Content-Length", pageStr.size());
-
+    response += std::format("Content-Length: {}\r\n\r\n", bodySize);
     response += pageStr;
 
     return response;

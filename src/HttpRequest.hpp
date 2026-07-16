@@ -1,6 +1,6 @@
 #pragma once
 #include <string>
-#include <map>
+#include <unordered_map>
 
 struct URL
 {
@@ -16,7 +16,7 @@ struct URL
 	Protocols protocol = Protocols::UNKNOWN;
 	std::string domain;
 	std::string path;
-	std::map<std::string, std::string> queryParams;
+	std::unordered_map<std::string, std::string> queryParams;
 };
 
 
@@ -38,7 +38,7 @@ struct HttpRequest
 	URL url;
 	std::string httpVersion;
 
-	std::map<std::string, std::string> headers;
+	std::unordered_map<std::string, std::string> headers;
 	std::string body;
 
 	bool parse(std::string_view request);

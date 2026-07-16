@@ -1,5 +1,5 @@
 #pragma once
-#include <map>
+#include <unordered_map>
 #include <string>
 #include <limits>
 #include <cstdint>
@@ -8,7 +8,7 @@
 
 struct HttpResponse
 {
-    std::map<std::string, std::string> headers = {};
+    std::unordered_map<std::string, std::string> headers = {};
     uint32_t code = (std::numeric_limits<uint32_t>::max)();
     std::variant<std::string, HttpPage> body;
 

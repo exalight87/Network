@@ -7,6 +7,8 @@
 #include <SocketConnection.hpp>
 #include <ConnectionPool.hpp>
 #include <ScopeGuard.hpp>
+#include <thread>
+#include <atomic>
 
 #ifdef _WIN32
 #include <WS2tcpip.h>
@@ -17,11 +19,11 @@
 #include <unistd.h>
 #include <errno.h>
 #include <cstring>
+#include <sys/epoll.h>
 #endif
 
 namespace
 {
-    
     Result<std::string, DefaultErrorType> _GetIpFromSockaddr(const struct sockaddr_in* addr);
 }
 
@@ -77,7 +79,7 @@ Result<void, DefaultErrorType> NetworkSocket::start()
 #ifdef _WIN32
         return Error(DefaultErrorType::NotSpecialized, std::format("Fail to bind on {}:{} : [{}] {}", ip().Data(), m_sourceData.sin_port, error, WSAGetLastError()));
 #else
-        return Error(DefaultErrorType::NotSpecialized, std::format("Fail to bind on {}:{} : [{}] {}", ip().Data(), m_sourceData.sin_port, error, strerror(errno)));
+        return Error(DefaultErrorType::NotSpecialized, std::format("Fail to bind on {}:{} : [{}] {}", ip().DataOr("0.0.0.0"), m_sourceData.sin_port, error, strerror(errno)));
 #endif
     }
 
@@ -91,14 +93,105 @@ Result<void, DefaultErrorType> NetworkSocket::start()
 #endif
     }
 
+#ifndef _WIN32
+    int epollFd = epoll_create1(0);
+    if (epollFd == -1)
+    {
+        return Error(DefaultErrorType::NotSpecialized, std::format("Fail to create epoll : {}", strerror(errno)));
+    }
+
+    struct epoll_event event;
+    event.events = EPOLLIN;
+    event.data.fd = m_handle;
+    if (epoll_ctl(epollFd, EPOLL_CTL_ADD, m_handle, &event) == -1)
+    {
+        close(epollFd);
+        return Error(DefaultErrorType::NotSpecialized, std::format("Fail to add epoll event : {}", strerror(errno)));
+    }
+
+    struct epoll_event events[64];
+    while (true)
+    {
+        int numEvents = epoll_wait(epollFd, events, 64, 100);
+        if (numEvents == -1)
+        {
+            if (errno == EINTR) continue;
+            break;
+        }
+
+        for (int i = 0; i < numEvents; ++i)
+        {
+            if (events[i].data.fd == m_handle)
+            {
+                m_connect();
+            }
+        }
+    }
+
+    close(epollFd);
+#else
     while (true)
     {
         auto isConnected = m_connect();
         if (!isConnected)
         {
-            std::cerr << isConnected.GetError().GetFormatedError() << '\n';
+            std::string errorMsg = isConnected.GetError().GetFormatedError();
+            if (errorMsg.find("Resource temporarily unavailable") == std::string::npos)
+            {
+                std::cerr << errorMsg << '\n';
+            }
         }
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
     }
+#endif
+
+    return {};
+}
+
+void NetworkSocket::maxConnections(uint32_t max)
+{
+    m_maxConnections = max;
+}
+
+uint32_t NetworkSocket::maxConnections() const
+{
+    return m_maxConnections;
+}
+
+
+Result<void, DefaultErrorType> NetworkSocket::stop()
+{
+    if (m_pool)
+    {
+        m_pool->stop();
+    }
+
+#ifdef _WIN32
+    if (int error = shutdown(m_handle, 2); error != 0)
+    {
+        return Error(DefaultErrorType::NotSpecialized, std::format("Fail to shutdown the main socket : [{}] {}", error, WSAGetLastError()) );
+    }
+
+    if (int error = closesocket(m_handle); error != 0)
+    {
+        return Error(DefaultErrorType::NotSpecialized, std::format("Fail to disconnect the main socket : [{}] {}", error, WSAGetLastError()));
+    }
+
+    if (int error = WSACleanup(); error != 0)
+    {
+        return Error(DefaultErrorType::NotSpecialized, std::format("Fail to free winsock : [{}] {}", error, WSAGetLastError()));
+    }
+#else
+    if (shutdown(m_handle, SHUT_RDWR) != 0)
+    {
+        return Error(DefaultErrorType::NotSpecialized, std::format("Fail to shutdown the main socket : [{}] {}", errno, strerror(errno)));
+    }
+
+    if (close(m_handle) != 0)
+    {
+        return Error(DefaultErrorType::NotSpecialized, std::format("Fail to disconnect the main socket : [{}] {}", errno, strerror(errno)));
+    }
+#endif
 
     return {};
 }
@@ -152,6 +245,12 @@ Result<void, DefaultErrorType> NetworkSocket::m_connect()
     {
         return Error(DefaultErrorType::NotSpecialized, "Pool unitialized");
     }
+
+    if (m_currentConnections >= m_maxConnections)
+    {
+        return {};
+    }
+
     struct sockaddr_in clientData;
     socklen_t clientSize = sizeof(clientData);
     SOCKET connection = accept(m_handle, (sockaddr*) &clientData, &clientSize);
@@ -175,51 +274,16 @@ Result<void, DefaultErrorType> NetworkSocket::m_connect()
     fcntl(connection, F_SETFL, flags | O_NONBLOCK);
 #endif
 
-    m_pool->m_push({ connection, clientData });
+    m_currentConnections++;
+    auto connPtr = std::make_shared<SocketConnection>(connection, clientData);
+    connPtr->onClose([this]() { m_currentConnections--; });
+    m_pool->m_push(std::move(*connPtr));
     return {};
 }
 
 
-Result<void, DefaultErrorType> NetworkSocket::stop()
+namespace
 {
-    if (m_pool)
-    {
-        m_pool->stop();
-    }
-
-#ifdef _WIN32
-    if (int error = shutdown(m_handle, 2); error != 0)
-    {
-        return Error(DefaultErrorType::NotSpecialized, std::format("Fail to shutdown the main socket : [{}] {}", error, WSAGetLastError()) );
-    }
-
-    if (int error = closesocket(m_handle); error != 0)
-    {
-        return Error(DefaultErrorType::NotSpecialized, std::format("Fail to disconnect the main socket : [{}] {}", error, WSAGetLastError()));
-    }
-
-    if (int error = WSACleanup(); error != 0)
-    {
-        return Error(DefaultErrorType::NotSpecialized, std::format("Fail to free winsock : [{}] {}", error, WSAGetLastError()));
-    }
-#else
-    if (shutdown(m_handle, SHUT_RDWR) != 0)
-    {
-        return Error(DefaultErrorType::NotSpecialized, std::format("Fail to shutdown the main socket : [{}] {}", errno, strerror(errno)));
-    }
-
-    if (close(m_handle) != 0)
-    {
-        return Error(DefaultErrorType::NotSpecialized, std::format("Fail to disconnect the main socket : [{}] {}", errno, strerror(errno)));
-    }
-#endif
-
-    return {};
-}
-
-namespace {
-
-    
     Result<std::string, DefaultErrorType> _GetIpFromSockaddr(const struct sockaddr_in* addr )
     {
         std::string ip;
