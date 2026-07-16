@@ -4,7 +4,6 @@ build/
 dist/
 node_modules/
 vsxmake*/
-.vs/
+.vs/*
 
-# MacOS Cache
-.DS_Store
+.vscode/*

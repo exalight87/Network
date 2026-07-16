@@ -1,0 +1,5 @@
+{
+  "name": "http-server",
+  "publish": "dist",
+  "routing": "static"
+}
