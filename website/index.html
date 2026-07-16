@@ -1,14 +1,68 @@
-<html lang="en">
+<!doctype html>
+<html lang="fr">
 <head>
-    <meta charset="UTF-8">
-    <link rel="icon" type="image/png" href="../resources/image.png" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Document</title>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Démonstration interactive d'une bibliothèque de serveur HTTP en C++23">
+  <title>HTTP Server — Démo C++23</title>
+  <link rel="stylesheet" href="./styles.css">
+  <script src="./app.js" defer></script>
 </head>
 <body>
-    <h1>Bienvenue sur la page d'accueil</h1>
-    <img
-        src="/resources/image.png"
-        alt="Grapefruit slice atop a pile of other slices" />
+  <header class="hero">
+    <nav><a class="brand" href="./">HTTP<span>Server</span></a><a href="/api-demo/docs" target="_blank" rel="noopener">Documentation API ↗</a></nav>
+    <div class="hero-copy">
+      <p class="eyebrow">Bibliothèque C++23 · sockets TCP · epoll</p>
+      <h1>Comprendre un serveur HTTP<br><em>en l’utilisant.</em></h1>
+      <p class="lede">Choisissez un scénario, observez le code qui déclare la route, puis envoyez une vraie requête au serveur C++ isolé.</p>
+      <a class="primary" href="#console">Essayer la console</a>
+    </div>
+  </header>
+
+  <main>
+    <section class="architecture" aria-labelledby="architecture-title">
+      <div><p class="eyebrow">Sous le capot</p><h2 id="architecture-title">Une API compacte, des concepts visibles</h2></div>
+      <div class="flow" aria-label="Chemin d'une requête"><span>Navigateur</span><b>→</b><span>Caddy HTTPS</span><b>→</b><span>Conteneur C++</span><b>→</b><span>HttpRoute</span></div>
+    </section>
+
+    <section id="console" class="playground" aria-labelledby="console-title">
+      <div class="section-heading"><div><p class="eyebrow">Laboratoire</p><h2 id="console-title">Console interactive</h2></div><span id="api-state" class="state">Prête</span></div>
+      <div class="scenario-tabs" role="tablist" aria-label="Scénarios HTTP">
+        <button class="scenario active" data-scenario="ping" role="tab">GET · Ping</button>
+        <button class="scenario" data-scenario="user" role="tab">GET · Paramètres</button>
+        <button class="scenario" data-scenario="echo" role="tab">POST · JSON</button>
+        <button class="scenario" data-scenario="error" role="tab">GET · Erreur</button>
+      </div>
+
+      <div class="console-grid">
+        <article class="request-panel">
+          <div class="panel-title"><span>Requête</span><span id="method-badge" class="method">GET</span></div>
+          <label for="request-url">URL</label>
+          <input id="request-url" spellcheck="false" autocomplete="off">
+          <label for="request-body">Corps de la requête</label>
+          <textarea id="request-body" rows="7" spellcheck="false"></textarea>
+          <button id="send-request" class="primary" type="button">Envoyer la requête <span>⌘ ↵</span></button>
+        </article>
+        <article class="response-panel">
+          <div class="panel-title"><span>Réponse</span><span id="response-meta">En attente</span></div>
+          <div class="response-summary"><strong id="status-code">—</strong><span id="status-text">Aucune requête</span><span id="duration">— ms</span></div>
+          <details><summary>Headers</summary><pre id="response-headers">—</pre></details>
+          <pre id="response-body" class="response-body">Sélectionnez un scénario et envoyez la requête.</pre>
+        </article>
+      </div>
+
+      <article class="code-panel">
+        <div class="panel-title"><span>Déclaration C++ correspondante</span><span>C++23</span></div>
+        <pre><code id="route-code"></code></pre>
+      </article>
+    </section>
+
+    <section class="features">
+      <article><span>01</span><h3>Routes expressives</h3><p>Méthodes, paramètres de chemin, query string et routes imbriquées.</p></article>
+      <article><span>02</span><h3>Réponses maîtrisées</h3><p>Statuts, headers, JSON, HTML et fichiers statiques depuis la même API.</p></article>
+      <article><span>03</span><h3>Documentation automatique</h3><p>Les descriptions de routes alimentent une page d’API générée au démarrage.</p></article>
+    </section>
+  </main>
+  <footer><span>HTTPServer · C++23</span><a href="/api-demo/docs" target="_blank" rel="noopener">Voir toutes les routes</a></footer>
 </body>
 </html>
