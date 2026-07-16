@@ -21,6 +21,7 @@ int main(int argc, char **argv)
 
     HttpServer server;
     server.port(port);
+    server.enableAutoDocs();
 
     server.addRoute({.route = "ping",
                      .callable = [](const HttpRequest &request, HttpResponse &response) -> bool
@@ -28,7 +29,8 @@ int main(int argc, char **argv)
                          response.body = "pong";
                          response.code = 200;
                          return true;
-                     }});
+                     },
+                     .description = "Health check endpoint - returns 'pong'"});
 
     server.addRoute({.route = "your-post-endpoint",
                      .allowedMethods = {HttpRequest::Methods::POST},
@@ -37,7 +39,18 @@ int main(int argc, char **argv)
                          response.body = "POST received";
                          response.code = 200;
                          return true;
-                     }});
+                     },
+                     .description = "Example POST endpoint"});
+
+    server.addRoute({.route = "your-post-endpoint",
+                     .allowedMethods = {HttpRequest::Methods::POST},
+                     .callable = [](const HttpRequest &request, HttpResponse &response) -> bool
+                     {
+                         response.body = "POST received";
+                         response.code = 200;
+                         return true;
+                     },
+                     .description = "Example POST endpoint"});
 
     server.addRoute({.route = "api",
                      .subRoutes = {

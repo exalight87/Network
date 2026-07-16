@@ -16,6 +16,7 @@ int main(int argc, char **argv)
     // Create HTTP server instance
     HttpServer server;
     server.port(port);
+    server.enableAutoDocs();
 
     // API endpoints with nested routes
     server.addRoute({

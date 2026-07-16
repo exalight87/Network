@@ -19,6 +19,7 @@ struct HttpRoute
 	std::vector<HttpRequest::Methods> allowedMethods;
 	std::optional< std::function< bool(const HttpRequest& request, HttpResponse& response) > > callable;
 	std::vector<HttpRoute> subRoutes;
+	std::optional<std::string> description;
 
 	// Computed one time
 	std::size_t nbSlashes = std::string::npos;

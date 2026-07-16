@@ -69,10 +69,10 @@ Result<void, DefaultErrorType> NetworkSocket::start()
     setsockopt(m_handle, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
 #endif
 
-    if (!ip())
+    if (m_sourceData.sin_family == 0)
     {
-        m_sourceData.sin_addr.s_addr = INADDR_ANY;
         m_sourceData.sin_family = AF_INET;
+        m_sourceData.sin_addr.s_addr = INADDR_ANY;
     }
 
     int errorBind = bind(m_handle, (struct sockaddr*)&m_sourceData, sizeof(m_sourceData));
@@ -80,9 +80,9 @@ Result<void, DefaultErrorType> NetworkSocket::start()
     if (errorBind != 0)
     {
 #ifdef _WIN32
-        return Error(DefaultErrorType::NotSpecialized, std::format("Fail to bind on {}:{} : [{}] {}", ip().Data(), m_sourceData.sin_port, errorBind, WSAGetLastError()));
+        return Error(DefaultErrorType::NotSpecialized, std::format("Fail to bind on {}:{} : [{}] {}", ip().DataOr("0.0.0.0"), port().DataOr(0), errorBind, WSAGetLastError()));
 #else
-        return Error(DefaultErrorType::NotSpecialized, std::format("Fail to bind on {}:{} : [{}] {}", ip().DataOr("0.0.0.0"), m_sourceData.sin_port, errorBind, strerror(errno)));
+        return Error(DefaultErrorType::NotSpecialized, std::format("Fail to bind on {}:{} : [{}] {}", ip().DataOr("0.0.0.0"), port().DataOr(0), errorBind, strerror(errno)));
 #endif
     }
 
@@ -90,9 +90,9 @@ Result<void, DefaultErrorType> NetworkSocket::start()
     if (!m_listen())
     {
 #ifdef _WIN32
-        return Error(DefaultErrorType::NotSpecialized, std::format("Fail to listen on {}:{} : [{}] {}", ip().Data(), m_sourceData.sin_port, errorBind, WSAGetLastError()));
+        return Error(DefaultErrorType::NotSpecialized, std::format("Fail to listen on {}:{} : [{}] {}", ip().DataOr("0.0.0.0"), port().DataOr(0), errorBind, WSAGetLastError()));
 #else
-        return Error(DefaultErrorType::NotSpecialized, std::format("Fail to listen on {}:{} : [{}] {}", ip().DataOr("0.0.0.0"), m_sourceData.sin_port, errorBind, strerror(errno)));
+        return Error(DefaultErrorType::NotSpecialized, std::format("Fail to listen on {}:{} : [{}] {}", ip().DataOr("0.0.0.0"), port().DataOr(0), errorBind, strerror(errno)));
 #endif
     }
 
@@ -174,6 +174,11 @@ Result<void, DefaultErrorType> NetworkSocket::stop()
         m_pool->stop();
     }
 
+    if (m_handle == INVALID_SOCKET)
+    {
+        return {};
+    }
+
 #ifdef _WIN32
     if (int error = shutdown(m_handle, 2); error != 0)
     {
@@ -184,6 +189,7 @@ Result<void, DefaultErrorType> NetworkSocket::stop()
     {
         return Error(DefaultErrorType::NotSpecialized, std::format("Fail to disconnect the main socket : [{}] {}", error, WSAGetLastError()));
     }
+    m_handle = INVALID_SOCKET;
 
     if (int error = WSACleanup(); error != 0)
     {
@@ -199,6 +205,7 @@ Result<void, DefaultErrorType> NetworkSocket::stop()
     {
         return Error(DefaultErrorType::NotSpecialized, std::format("Fail to disconnect the main socket : [{}] {}", errno, strerror(errno)));
     }
+    m_handle = INVALID_SOCKET;
 #endif
 
     return {};

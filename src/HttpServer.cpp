@@ -18,6 +18,24 @@ namespace
 
 Result<void, HttpServerError> HttpServer::start()
 {
+    if (m_autoDocsEnabled)
+    {
+        auto rPort = port();
+        uint16_t portNum = rPort ? rPort.Data() : 8080;
+        
+        auto docsRoute = HttpRoute{};
+        docsRoute.route = "docs";
+        docsRoute.description = "API Documentation";
+        docsRoute.callable = [this, portNum](const HttpRequest& request, HttpResponse& response) -> bool
+        {
+            response.body = ApiDocs::generateHtml(m_routes, portNum);
+            response.headers["Content-Type"] = "text/html; charset=utf-8";
+            response.code = 200;
+            return true;
+        };
+        m_routes.push_back(std::move(docsRoute));
+    }
+    
     m_pool = std::make_unique<ConnectionPool>(
         [this](std::stop_token stopToken, std::shared_ptr<SocketConnection> connection)
         {
@@ -235,6 +253,11 @@ void HttpServer::clearRoutes()
 std::size_t HttpServer::routeCount() const
 {
     return m_routes.size();
+}
+
+void HttpServer::enableAutoDocs()
+{
+    m_autoDocsEnabled = true;
 }
 
 namespace {

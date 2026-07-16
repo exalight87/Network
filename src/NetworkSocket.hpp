@@ -50,11 +50,11 @@ protected:
     Result<void, DefaultErrorType> m_connect();
 
 #ifdef _WIN32
-    SOCKADDR_IN m_sourceData;
+    SOCKADDR_IN m_sourceData = {};
 #else
-    struct sockaddr_in m_sourceData;
+    struct sockaddr_in m_sourceData = {};
 #endif
-    SOCKET m_handle;
+    SOCKET m_handle = INVALID_SOCKET;
     std::unique_ptr<ConnectionPool> m_pool;
     uint32_t m_maxConnections = 1000;
     std::atomic<uint32_t> m_currentConnections = 0;
