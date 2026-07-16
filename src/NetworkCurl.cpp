@@ -109,6 +109,7 @@ namespace
 
 NetworkCurl::NetworkCurl(/* args */)
 {
+    curl_global_init(CURL_GLOBAL_DEFAULT);
     m_curl = curl_easy_init();
     if (m_curl == nullptr)
     {
@@ -157,6 +158,7 @@ size_t NetworkCurl::m_FillNetworkResponse(void *data, size_t size, size_t nmemb,
 
 NetworkResponse NetworkCurl::Get(std::string_view URL)
 {
+    std::lock_guard<std::mutex> lock(m_mutex);
     NetworkResponse response;
     curl_easy_setopt(m_curl, CURLOPT_WRITEDATA, (void *)&response);
     curl_easy_setopt(m_curl, CURLOPT_URL, URL.data());
@@ -197,6 +199,7 @@ NetworkResponse NetworkCurl::Get(std::string_view URL)
 
 NetworkResponse NetworkCurl::Post(std::string_view URL, std::string_view payload)
 {
+    std::lock_guard<std::mutex> lock(m_mutex);
     NetworkResponse response;
     curl_easy_setopt(m_curl, CURLOPT_WRITEDATA, (void *)&response);
     curl_easy_setopt(m_curl, CURLOPT_URL, URL.data());

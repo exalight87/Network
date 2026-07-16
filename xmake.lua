@@ -30,6 +30,19 @@ target("server_tests")
         os.exec(target:targetfile())
     end)
 
+target("robustness_tests")
+    set_kind("binary")
+    add_files("tests/robustness_test.cpp")
+    add_deps("test_curl")
+    add_packages("gtest", "libcurl")
+    
+    add_includedirs("tests")
+    add_includedirs("src")
+
+    after_build(function (target)
+        os.exec(target:targetfile())
+    end)
+
 target("http_server")
     set_kind("binary")
     add_files("src/main.cpp")

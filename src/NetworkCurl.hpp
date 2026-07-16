@@ -5,6 +5,7 @@
 #include <map>
 #include <cstdint>
 #include <vector>
+#include <mutex>
 
 struct NetworkResponse
 {
@@ -48,4 +49,5 @@ private:
     static size_t m_FillNetworkResponse(void *data, size_t size, size_t nmemb, void *networkResponse);
 
     CURL *m_curl;
+    std::mutex m_mutex;
 };
