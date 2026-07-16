@@ -16,7 +16,7 @@ const scenarios = {
     code: `server.addRoute({\n  .route = "errors/{code}",\n  .callable = [](const HttpRequest&, HttpResponse& response) {\n    response.code = 422;\n    response.body = R"({"error":"validation failure"})";\n    return true;\n  }\n});`
   },
   inspect: {
-    method: 'GET', url: '/api-demo/inspect', headers: 'Accept: application/json\nX-Demo-User: Léa', body: '',
+    method: 'GET', url: '/api-demo/inspect', headers: 'Accept: application/json\nX-Demo-User: Lea', body: '',
     code: `server.addRoute({\n  .route = "inspect",\n  .callable = [](const HttpRequest& request, HttpResponse& response) {\n    const auto user = headerValue(request, "X-Demo-User");\n    response.headers["Vary"] = "Accept, X-Demo-User";\n    // Renvoyer les headers inspectés...\n    return true;\n  }\n});`
   },
   patch: {
