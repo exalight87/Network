@@ -29,6 +29,7 @@ h2 { margin:0; font-size:clamp(38px,5vw,64px); line-height:1; }
 .panel-title { display:flex; justify-content:space-between; margin-bottom:24px; color:var(--muted); font-size:12px; font-weight:800; letter-spacing:.1em; text-transform:uppercase; }
 .method { color:#246b48; }
 label { display:block; margin:18px 0 7px; color:var(--muted); font-size:12px; font-weight:700; }
+.label-hint { float:right; font-weight:500; }
 input,textarea { width:100%; padding:13px; border:1px solid var(--line); border-radius:3px; color:var(--ink); background:#fff; font:14px/1.5 ui-monospace,SFMono-Regular,monospace; } textarea { resize:vertical; }
 #send-request { width:100%; margin-top:18px; }
 .response-summary { display:grid; grid-template-columns:auto 1fr auto; gap:14px; align-items:baseline; margin-bottom:20px; }.response-summary strong { color:var(--orange); font:700 34px Georgia,serif; }.response-summary span { color:var(--muted); }

@@ -31,6 +31,9 @@
         <button class="scenario active" data-scenario="ping" role="tab">GET · Ping</button>
         <button class="scenario" data-scenario="user" role="tab">GET · Paramètres</button>
         <button class="scenario" data-scenario="echo" role="tab">POST · JSON</button>
+        <button class="scenario" data-scenario="inspect" role="tab">GET · Headers</button>
+        <button class="scenario" data-scenario="patch" role="tab">PATCH · Mise à jour</button>
+        <button class="scenario" data-scenario="job" role="tab">POST · Création</button>
         <button class="scenario" data-scenario="error" role="tab">GET · Erreur</button>
       </div>
 
@@ -39,6 +42,8 @@
           <div class="panel-title"><span>Requête</span><span id="method-badge" class="method">GET</span></div>
           <label for="request-url">URL</label>
           <input id="request-url" spellcheck="false" autocomplete="off">
+          <label for="request-headers">Headers de la requête <span class="label-hint">un par ligne</span></label>
+          <textarea id="request-headers" rows="3" spellcheck="false" placeholder="X-Demo-User: Léa"></textarea>
           <label for="request-body">Corps de la requête</label>
           <textarea id="request-body" rows="7" spellcheck="false"></textarea>
           <button id="send-request" class="primary" type="button">Envoyer la requête <span>⌘ ↵</span></button>
