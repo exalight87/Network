@@ -56,6 +56,19 @@ target("robustness_tests")
         os.exec(target:targetfile())
     end)
 
+target("route_duplicate_tests")
+    set_kind("binary")
+    add_files("tests/route_duplicate_test.cpp")
+    add_deps("test_curl")
+    add_packages("gtest")
+    
+    add_includedirs("tests")
+    add_includedirs("src")
+
+    after_build(function (target)
+        os.exec(target:targetfile())
+    end)
+
 target("http_server")
     set_kind("binary")
     add_files("src/main.cpp")

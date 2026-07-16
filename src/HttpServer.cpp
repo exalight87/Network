@@ -6,7 +6,7 @@
 #include <ConnectionPool.hpp>
 #include <ScopeGuard.hpp>
 #include <Http2.hpp>
-#include <cstring>  // For memcmp
+#include <cstring>
 
 namespace
 {
@@ -28,7 +28,6 @@ Result<void, HttpServerError> HttpServer::start()
                 }
                 });
 
-            // Check if this is an HTTP/2 connection
             std::vector<char> initialData;
             auto rData = connection->receive(initialData);
             
@@ -55,7 +54,7 @@ Result<void, HttpServerError> HttpServer::start()
                 try
                 {
                     rRequest = _getHttpRequest(connection, &initialData);
-                    initialData.clear();  // Clear after first use
+                    initialData.clear();
 
                     if (rRequest)
                     {
@@ -76,10 +75,8 @@ Result<void, HttpServerError> HttpServer::start()
                         if (!rCLientIp)
                         {
                             std::cerr << "  Can't get ip from client connection\n";
-                            // break;
                         }
                         std::cout << std::format("  Request from [ {} ] on : {}\n", rCLientIp.DataOr("Unknown").c_str(), request.url.path);
-
 
                         auto cleanedPath = request.url.path.substr(1);
                         auto splitedPath = std::views::split(cleanedPath, '/');
@@ -135,7 +132,6 @@ Result<void, HttpServerError> HttpServer::start()
                     response = HttpResponse::CODE_404;
                 }
 
-                // Headers added by the server
                 auto rIp = ip();
                 auto rPort = port();
                 if (rIp && rPort)
@@ -158,7 +154,6 @@ Result<void, HttpServerError> HttpServer::start()
                     std::cerr << result.GetError().GetFormatedError() << "\n";
                 }
 
-                // Check max requests for aggressive reuse
                 if (connection->nbRequest() >= connection->maxRequest()) {
                     break;
                 }
@@ -177,9 +172,34 @@ Result<void, HttpServerError> HttpServer::start()
 
 void HttpServer::addRoute(HttpRoute&& route)
 {
-    m_routes.push_back(std::forward< HttpRoute >(route));
+    if (!route.allowedMethods.empty())
+    {
+        for (auto method : route.allowedMethods)
+        {
+            if (!RouteRegistry::instance().addRoute(route.route, method))
+            {
+                std::cerr << "[WARNING] Duplicate route not added: " << route.route << "\n";
+                return;
+            }
+        }
+    }
+    else
+    {
+        RouteRegistry::instance().addRoute(route.route, HttpRequest::UNKNOWN);
+    }
+    m_routes.push_back(std::forward<HttpRoute>(route));
 }
 
+void HttpServer::clearRoutes()
+{
+    m_routes.clear();
+    RouteRegistry::instance().clear();
+}
+
+std::size_t HttpServer::routeCount() const
+{
+    return m_routes.size();
+}
 
 namespace {
     Result<HttpRequest, HttpServerError> _getHttpRequest(std::shared_ptr<SocketConnection> connection, const std::vector<char>* initialData = nullptr)
@@ -187,7 +207,6 @@ namespace {
         using namespace std::chrono_literals;
         std::vector<char> data;
         
-        // Use initial data if provided
         if (initialData && !initialData->empty()) {
             data = *initialData;
         }
@@ -244,7 +263,6 @@ namespace {
 
     [[maybe_unused]] bool _IsHttp2Request(const std::vector<char>& data)
     {
-        // HTTP/2 connection preface: "PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n"
         if (data.size() >= 24) {
             const char* preface = "PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n";
             return std::memcmp(data.data(), preface, 24) == 0;
@@ -254,7 +272,6 @@ namespace {
 
     bool _IsHttp2Connection(const std::vector<char>& data)
     {
-        // HTTP/2 connection preface: "PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n"
         if (data.size() >= 24) {
             const char* preface = "PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n";
             return std::memcmp(data.data(), preface, 24) == 0;
@@ -267,7 +284,6 @@ namespace {
         Http2Connection http2Conn;
         std::vector<char> buffer;
         
-        // Process the initial data
         std::vector<uint8_t> response;
         auto result = http2Conn.processData(
             reinterpret_cast<const uint8_t*>(initialData.data()), 
@@ -287,7 +303,6 @@ namespace {
             }
         }
         
-        // Continue handling HTTP/2 frames
         while (!connection->isClosed() && !connection->closeRequested())
         {
             buffer.clear();
@@ -300,7 +315,6 @@ namespace {
                 break;
             }
             
-            // Process incoming frames
             result = http2Conn.processData(
                 reinterpret_cast<const uint8_t*>(buffer.data()), 
                 buffer.size()
@@ -341,7 +355,6 @@ namespace {
             return Error(HttpServerError::NotSpecialized, "Empty HTTP/2 request");
         }
 
-        // Simple HTTP/2 response for now
         return std::string(data.begin(), data.end());
     }
 }
