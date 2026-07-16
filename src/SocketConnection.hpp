@@ -17,6 +17,7 @@
 #include <utility>
 #include <functional>
 #include <array>
+#include <span>
 
 class NetworkSocket;
 
@@ -33,7 +34,8 @@ public:
         m_handle(std::exchange(other.m_handle, NULL)),
         m_nbRequest(std::exchange(other.m_nbRequest, 0)),
         m_closeRequested(std::exchange(other.m_closeRequested, false)),
-        m_onClose(std::exchange(other.m_onClose, {})) {};
+        m_onClose(std::exchange(other.m_onClose, {})),
+        m_recvBuffer(std::exchange(other.m_recvBuffer, {})) {};
     SocketConnection& operator=(SocketConnection&& other) noexcept
     {
         std::swap(m_clientData, other.m_clientData);
@@ -122,9 +124,9 @@ private:
 #endif
     SOCKET m_handle;
     std::size_t m_nbRequest;
-    bool m_closeRequested;
-    bool m_isHttp2{false};
+    bool m_closeRequested = false;
+    bool m_isHttp2 = false;
     std::function<void()> m_onClose;
     std::vector<std::string> m_protocolPreference;
-    std::array<char, 16384> m_recvBuffer;
+    std::array<char, 16384> m_recvBuffer = {};
 };

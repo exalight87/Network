@@ -1,5 +1,6 @@
 #include <SocketConnection.hpp>
 #include <format>
+#include <iostream>
 
 #ifdef _WIN32
 #include <WS2tcpip.h>
@@ -10,8 +11,6 @@
 #include <unistd.h>
 #include <errno.h>
 #include <cstring>
-#define SOCKET int
-#define INVALID_SOCKET (-1)
 #endif
 
 namespace
@@ -31,10 +30,13 @@ Result<void, DefaultErrorType> SocketConnection::receive(std::vector<char>& data
 {
 #ifdef _WIN32
     unsigned long l;
-    while (ioctlsocket(m_handle, FIONREAD, &l) == 0 && l != 0)
-#else
-    while (true)
+    if (ioctlsocket(m_handle, FIONREAD, &l) != 0 || l == 0)
+    {
+        return {};
+    }
+    // Data is available, proceed to receive
 #endif
+    while (true)
     {
         int bytesReceived = recv(m_handle, m_recvBuffer.data(), static_cast<int>(m_recvBuffer.size()), 0);
 
@@ -45,12 +47,18 @@ Result<void, DefaultErrorType> SocketConnection::receive(std::vector<char>& data
         }
         else if (bytesReceived == 0) // The socket is closed
         {
+            disconnect();
             return Error(DefaultErrorType::NotSpecialized, "Connection closed");
         }
         else if (bytesReceived < 0)
         {
 #ifdef _WIN32
-            return Error(DefaultErrorType::NotSpecialized, std::format("Fail to receive data : [{}] {}", bytesReceived, WSAGetLastError()));
+            int wsaError = WSAGetLastError();
+            if (wsaError == WSAEWOULDBLOCK)
+            {
+                return {};
+            }
+            return Error(DefaultErrorType::NotSpecialized, std::format("Fail to receive data : [{}] {}", bytesReceived, wsaError));
 #else
             if (errno == EAGAIN || errno == EWOULDBLOCK)
             {
@@ -63,8 +71,7 @@ Result<void, DefaultErrorType> SocketConnection::receive(std::vector<char>& data
     return {};
 }
 
-
-Result<void, DefaultErrorType> SocketConnection::send(std::span<const char> data)
+[[nodiscard]] Result<void, DefaultErrorType> SocketConnection::send(std::span<const char> data)
 {
     m_nbRequest++;
 

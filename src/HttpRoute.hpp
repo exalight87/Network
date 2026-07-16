@@ -33,6 +33,28 @@ inline bool HttpRoute::operator()(Range currentRoute_, const HttpRequest& reques
 		nbSlashes = std::count(route.begin(), route.end(), '/');
 	}
 
+	// Handle empty route (root path) - check if currentRoute is empty
+	if (std::ranges::empty(currentRoute))
+	{
+		// Empty route "" matches root path "/"
+		if (route.empty())
+		{
+			response.reset();
+
+			if (!allowedMethods.empty() && std::find(allowedMethods.begin(), allowedMethods.end(), request.method) == allowedMethods.end())
+			{
+				response.code = 405;
+				return false;
+			}
+
+			if (callable && response.empty())
+			{
+				return callable.value()(request, response);
+			}
+		}
+		return false;
+	}
+
 	std::string_view routeJoin = std::string_view(currentRoute.front());
 	if (nbSlashes > 1)
 	{

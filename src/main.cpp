@@ -125,15 +125,6 @@ int main(int argc, char **argv)
                          return true;
                      }});
 
-    server.addRoute({.route = "ping",
-                     .allowedMethods = {HttpRequest::Methods::GET},
-                     .callable = [](const HttpRequest &request, HttpResponse &response) -> bool
-                     {
-                         response.body = "pong";
-                         response.code = 200;
-                         return true;
-                     }});
-
     if (auto rServer = server.start(); !rServer)
     {
         std::cout << rServer.GetError().GetFormatedError();

@@ -42,6 +42,9 @@ Result<void, DefaultErrorType> NetworkSocket::start()
     {
         return Error(DefaultErrorType::NotSpecialized, std::format("Fail to init the socket : [{}] {}", error, WSAGetLastError()));
     }
+#else
+    // We no longer reserve fds 0,1,2 since it breaks output
+    // The accept() will use whatever fds are available
 #endif
 
     m_handle = socket(AF_INET, SOCK_STREAM, 0);
@@ -72,14 +75,14 @@ Result<void, DefaultErrorType> NetworkSocket::start()
         m_sourceData.sin_family = AF_INET;
     }
 
-    int error = bind(m_handle, (struct sockaddr*)&m_sourceData, sizeof(m_sourceData));
+    int errorBind = bind(m_handle, (struct sockaddr*)&m_sourceData, sizeof(m_sourceData));
 
-    if (error != 0)
+    if (errorBind != 0)
     {
 #ifdef _WIN32
-        return Error(DefaultErrorType::NotSpecialized, std::format("Fail to bind on {}:{} : [{}] {}", ip().Data(), m_sourceData.sin_port, error, WSAGetLastError()));
+        return Error(DefaultErrorType::NotSpecialized, std::format("Fail to bind on {}:{} : [{}] {}", ip().Data(), m_sourceData.sin_port, errorBind, WSAGetLastError()));
 #else
-        return Error(DefaultErrorType::NotSpecialized, std::format("Fail to bind on {}:{} : [{}] {}", ip().DataOr("0.0.0.0"), m_sourceData.sin_port, error, strerror(errno)));
+        return Error(DefaultErrorType::NotSpecialized, std::format("Fail to bind on {}:{} : [{}] {}", ip().DataOr("0.0.0.0"), m_sourceData.sin_port, errorBind, strerror(errno)));
 #endif
     }
 
@@ -87,9 +90,9 @@ Result<void, DefaultErrorType> NetworkSocket::start()
     if (!m_listen())
     {
 #ifdef _WIN32
-        return Error(DefaultErrorType::NotSpecialized, std::format("Fail to listen on {}:{} : [{}] {}", ip().Data(), m_sourceData.sin_port, error, WSAGetLastError()));
+        return Error(DefaultErrorType::NotSpecialized, std::format("Fail to listen on {}:{} : [{}] {}", ip().Data(), m_sourceData.sin_port, errorBind, WSAGetLastError()));
 #else
-        return Error(DefaultErrorType::NotSpecialized, std::format("Fail to listen on {}:{} : [{}] {}", ip().DataOr("0.0.0.0"), m_sourceData.sin_port, error, strerror(errno)));
+        return Error(DefaultErrorType::NotSpecialized, std::format("Fail to listen on {}:{} : [{}] {}", ip().DataOr("0.0.0.0"), m_sourceData.sin_port, errorBind, strerror(errno)));
 #endif
     }
 
@@ -101,7 +104,7 @@ Result<void, DefaultErrorType> NetworkSocket::start()
     }
 
     struct epoll_event event;
-    event.events = EPOLLIN;
+    event.events = EPOLLIN | EPOLLET; // Edge-triggered mode
     event.data.fd = m_handle;
     if (epoll_ctl(epollFd, EPOLL_CTL_ADD, m_handle, &event) == -1)
     {
@@ -118,17 +121,22 @@ Result<void, DefaultErrorType> NetworkSocket::start()
             if (errno == EINTR) continue;
             break;
         }
-
+        
         for (int i = 0; i < numEvents; ++i)
         {
             if (events[i].data.fd == m_handle)
             {
+                if (events[i].events & EPOLLERR) {
+                    int error = 0;
+                    socklen_t len = sizeof(error);
+                    if (getsockopt(m_handle, SOL_SOCKET, SO_ERROR, &error, &len) == 0) {
+                        std::cerr << "Socket error: " << error << " (" << strerror(error) << ")\n";
+                    }
+                }
                 m_connect();
             }
         }
     }
-
-    close(epollFd);
 #else
     while (true)
     {
@@ -253,7 +261,43 @@ Result<void, DefaultErrorType> NetworkSocket::m_connect()
 
     struct sockaddr_in clientData;
     socklen_t clientSize = sizeof(clientData);
-    SOCKET connection = accept(m_handle, (sockaddr*) &clientData, &clientSize);
+    // Reset clientData to ensure it's zeroed out
+    memset(&clientData, 0, sizeof(clientData));
+    clientSize = sizeof(clientData);
+    
+    // Clear any previous errno
+    errno = 0;
+    
+    // Check socket state before accept
+    int sockError = 0;
+    socklen_t sockErrorLen = sizeof(sockError);
+    getsockopt(m_handle, SOL_SOCKET, SO_ERROR, (char*)  & sockError, &sockErrorLen);
+    
+#ifdef _WIN32
+    SOCKET connection = accept(m_handle, (sockaddr*)&clientData, &clientSize);
+#else
+    SOCKET connection = accept4(m_handle, (sockaddr*)&clientData, &clientSize, SOCK_CLOEXEC);
+    if (connection == INVALID_SOCKET)
+    {
+        connection = accept(m_handle, (sockaddr*)&clientData, &clientSize);
+        if (connection >= 0) {
+            fcntl(connection, F_SETFD, FD_CLOEXEC);
+        }
+    }
+#endif
+
+    // Validate socket descriptor - reject fds reserved for stdin/stdout/stderr
+    // These can cause issues when running in background
+    if (connection >= 0 && connection < 3)
+    {
+#ifdef _WIN32
+        closesocket(connection);
+#else
+        close(connection);
+#endif
+        return {};
+    }
+
     if (connection == INVALID_SOCKET)
     {
 #ifndef _WIN32
@@ -269,7 +313,28 @@ Result<void, DefaultErrorType> NetworkSocket::m_connect()
 #endif
     }
 
+    // Validate socket descriptor - only reject invalid values
+    if (connection < 0)
+    {
+        return {};
+    }
 
+    // Set accepted socket to blocking mode
+    // The accepted socket inherits O_NONBLOCK from the listening socket,
+    // so we need to explicitly set it to blocking
+#ifdef _WIN32
+    u_long mode = 0;
+    ioctlsocket(connection, FIONBIO, &mode);
+    // Set receive timeout to prevent immediate failures
+    int timeout = 30000; // 30 seconds
+    setsockopt(connection, SOL_SOCKET, SO_RCVTIMEO, (const char*)&timeout, sizeof(timeout));
+#else
+    int flags = fcntl(connection, F_GETFL, 0);
+    if (flags != -1)
+    {
+        fcntl(connection, F_SETFL, flags & ~O_NONBLOCK);
+    }
+#endif
 
     m_currentConnections++;
     auto connPtr = std::make_shared<SocketConnection>(connection, clientData);

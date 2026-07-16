@@ -2,8 +2,11 @@
 #include <cstring>
 #include <stdexcept>
 #include <iostream>
+#ifdef _WIN32
+#include <Winsock2.h>
+#else
 #include <arpa/inet.h>
-
+#endif
 // Helper function to convert big-endian
 static uint32_t readUint32BE(const uint8_t* data) {
     return (data[0] << 24) | (data[1] << 16) | (data[2] << 8) | data[3];

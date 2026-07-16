@@ -63,7 +63,45 @@ target("http_server")
     add_includedirs("src")
     add_headerfiles("src/*.hpp", {prefixdir = "include"})
     add_packages("libcurl")
-    add_syslinks("pthread")
+    if not is_plat("windows") then
+        add_syslinks("pthread")
+    end
+    add_defines("_CRT_SECURE_NO_WARNINGS")
+
+-- Example: Simple Server
+target("example_simple_server")
+    set_kind("binary")
+    add_files("examples/simple_server/main.cpp")
+    add_deps("test_curl")
+    add_includedirs("src")
+    add_packages("libcurl")
+    if not is_plat("windows") then
+        add_syslinks("pthread")
+    end
+    add_defines("_CRT_SECURE_NO_WARNINGS")
+
+-- Example: File Server
+target("example_file_server")
+    set_kind("binary")
+    add_files("examples/file_server/main.cpp")
+    add_deps("test_curl")
+    add_includedirs("src")
+    add_packages("libcurl")
+    if not is_plat("windows") then
+        add_syslinks("pthread")
+    end
+    add_defines("_CRT_SECURE_NO_WARNINGS")
+
+-- Example: API Server
+target("example_api_server")
+    set_kind("binary")
+    add_files("examples/api_server/main.cpp")
+    add_deps("test_curl")
+    add_includedirs("src")
+    add_packages("libcurl")
+    if not is_plat("windows") then
+        add_syslinks("pthread")
+    end
     add_defines("_CRT_SECURE_NO_WARNINGS")
 
 --

@@ -6,7 +6,7 @@ std::string HttpPage::str() const
     std::ostringstream page;
     page << "<html lang=\"en\">" << '\n';
 
-    page << "</head>" << '\n';
+    page << "<head>" << '\n';
         for (auto&& link : m_links)
         {
             page << link << '\n';
@@ -20,7 +20,7 @@ std::string HttpPage::str() const
         page << "<title>" << m_title.value_or("") << "</title>" << '\n';
     page << "</head>" << '\n';
 
-    page << "</body>" << '\n';
+    page << "<body>" << '\n';
         page << m_body;
     page << "</body>" << '\n';
 

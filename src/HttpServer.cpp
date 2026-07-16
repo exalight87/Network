@@ -111,6 +111,25 @@ Result<void, HttpServerError> HttpServer::start()
                     connection->requestClose();
                     response = HttpResponse::CLOSE_CONNECTION;
                 }
+                else if (!rRequest && rRequest.GetError().GetFormatedError().find("Connection closed") != std::string::npos)
+                {
+                    if (!connection->isClosed())
+                    {
+                        response.code = 400;
+                        response.body = "Bad Request: Connection closed by client";
+                        auto result = connection->send(response.format());
+                        if (!result)
+                        {
+                            std::cerr << result.GetError().GetFormatedError() << "\n";
+                        }
+                    }
+                    break;
+                }
+                else if (!rRequest)
+                {
+                    response.code = 400;
+                    response.body = "Bad Request: " + rRequest.GetError().GetFormatedError();
+                }
                 else if (!routeFound)
                 {
                     response = HttpResponse::CODE_404;
