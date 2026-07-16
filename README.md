@@ -37,6 +37,7 @@ The project includes comprehensive tests that run automatically after building:
 - **Server Tests**: Basic functionality
 - **Performance Tests**: Benchmarking
 - **Robustness Tests**: Stress and resilience testing
+- **Route Duplicate Tests**: Route registration validation
 
 ## Examples
 
@@ -76,6 +77,10 @@ curl http://localhost:8080/
 - **HttpRoute**: Hierarchical route system
 - **HttpRequest/HttpResponse**: Request/response handling
 - **Http2**: HTTP/2 protocol support
+- **NetworkCurl**: HTTP client functionality
+- **RouteRegistry**: Route registration and lookup
+- **Result/Error**: Error handling utilities
+- **ScopeGuard**: RAII resource management
 
 ### Performance Optimizations
 
@@ -103,6 +108,7 @@ xmake
 # Build specific target
 xmake build http_server
 xmake build server_tests
+xmake build route_duplicate_tests
 
 # Build in debug mode
 xmake f -m debug
@@ -189,6 +195,7 @@ Run all tests after building:
 xmake run server_tests
 xmake run performance_tests
 xmake run robustness_tests
+xmake run route_duplicate_tests
 ```
 
 All tests run automatically after a successful build.
@@ -201,15 +208,25 @@ test_curl/
 │   ├── HttpServer.*     # Main server
 │   ├── NetworkSocket.*  # Socket management
 │   ├── ConnectionPool.* # Thread pool
+│   ├── HttpRoute.*      # Route handling
+│   ├── HttpRequest.*    # Request parsing
+│   ├── HttpResponse.*   # Response building
+│   ├── Http2.*          # HTTP/2 support
+│   ├── NetworkCurl.*    # HTTP client
+│   ├── RouteRegistry.*  # Route registration
+│   ├── Result.hpp       # Result type
+│   ├── Error.hpp        # Error handling
 │   └── ...
 ├── tests/               # Test files
 │   ├── server_test.cpp
 │   ├── performance_test.cpp
-│   └── robustness_test.cpp
+│   ├── robustness_test.cpp
+│   └── route_duplicate_test.cpp
 ├── examples/            # Example servers
 │   ├── simple_server/
 │   ├── file_server/
 │   └── api_server/
+├── public/              # Public static files
 ├── website/             # Example website files
 ├── resources/           # Static resources
 ├── xmake.lua            # Build configuration
