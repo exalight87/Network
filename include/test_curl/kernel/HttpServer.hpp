@@ -1,16 +1,17 @@
 #pragma once
 
-#include <NetworkSocket.hpp>
+#include <test_curl/kernel/NetworkSocket.hpp>
 #include <memory>
 #include <vector>
-#include <Result.hpp>
-#include <RouteRegistry.hpp>
-#include <ApiDocs.hpp>
+#include <test_curl/kernel/Result.hpp>
+#include <test_curl/kernel/RouteRegistry.hpp>
+#include <test_curl/kernel/ApiDocs.hpp>
 
 class HttpServer : public NetworkSocket
 {
 public:
     [[nodiscard]] Result<void, HttpServerError> start();
+    [[nodiscard]] Result<void, DefaultErrorType> startAsync();
 
     void addRoute(HttpRoute&& route);
 

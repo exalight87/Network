@@ -1,7 +1,7 @@
-#include <HttpServer.hpp>
-#include <HttpRoute.hpp>
-#include <HttpRequest.hpp>
-#include <HttpResponse.hpp>
+#include <test_curl/kernel/HttpServer.hpp>
+#include <test_curl/kernel/HttpRoute.hpp>
+#include <test_curl/kernel/HttpRequest.hpp>
+#include <test_curl/kernel/HttpResponse.hpp>
 #include <iostream>
 
 int main(int argc, char **argv)

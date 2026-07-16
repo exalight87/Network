@@ -45,6 +45,11 @@ curl --http1.1 http://localhost:8080/ http://localhost:8080/
 ## Code Overview
 
 ```cpp
+#include <test_curl/kernel/HttpRequest.hpp>
+#include <test_curl/kernel/HttpResponse.hpp>
+#include <test_curl/kernel/HttpRoute.hpp>
+#include <test_curl/kernel/HttpServer.hpp>
+
 // 1. Create server instance
 HttpServer server;
 server.port(8080);

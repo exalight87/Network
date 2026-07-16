@@ -1,4 +1,4 @@
-#include "HttpPage.hpp"
+#include <test_curl/kernel/HttpPage.hpp>
 #include <sstream>
 
 std::string HttpPage::str() const

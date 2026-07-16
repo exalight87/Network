@@ -1,15 +1,14 @@
 #pragma once
-#include <thread>
-#include <utility>
+#include <atomic>
+#include <condition_variable>
 #include <functional>
-#include <stop_token>
-#include <thread>
-#include <SocketConnection.hpp>
 #include <mutex>
 #include <queue>
-#include <condition_variable>
+#include <stop_token>
+#include <test_curl/kernel/SocketConnection.hpp>
+#include <thread>
+#include <utility>
 #include <vector>
-#include <atomic>
 
 class NetworkSocket;
 
@@ -17,26 +16,27 @@ class ConnectionPool
 {
     friend NetworkSocket;
 
-public:
-    ConnectionPool(std::function< void(std::stop_token, std::shared_ptr<SocketConnection>) > callable);
+  public:
+    ConnectionPool(std::function<void(std::stop_token, std::shared_ptr<SocketConnection>)> callable);
     ~ConnectionPool();
-    std::size_t size() const { 
+    std::size_t size() const
+    {
         std::lock_guard<std::mutex> lock(m_mutex);
-        return m_connections.size(); 
+        return m_connections.size();
     };
     void stop();
 
-private:
+  private:
     void m_push(SocketConnection&& connection);
     void m_worker(std::stop_token stopToken);
 
-private:
+  private:
     mutable std::mutex m_mutex;
     std::vector<std::shared_ptr<SocketConnection>> m_connections;
     std::queue<std::shared_ptr<SocketConnection>> m_workQueue;
     std::condition_variable m_workCondition;
     std::vector<std::jthread> m_workers;
     std::jthread m_cleaner;
-    std::function< void(std::stop_token, std::shared_ptr<SocketConnection>) > m_entryPoint;
-    std::atomic<bool> m_stop{false};
+    std::function<void(std::stop_token, std::shared_ptr<SocketConnection>)> m_entryPoint;
+    std::atomic_bool m_stop{false};
 };

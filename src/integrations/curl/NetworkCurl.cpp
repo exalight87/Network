@@ -1,4 +1,4 @@
-#include <NetworkCurl.hpp>
+#include <test_curl/integrations/curl/NetworkCurl.hpp>
 #include <stdexcept>
 #include <span>
 #include <string_view>

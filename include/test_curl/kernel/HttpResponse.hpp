@@ -3,7 +3,7 @@
 #include <string>
 #include <limits>
 #include <cstdint>
-#include <HttpPage.hpp>
+#include <test_curl/kernel/HttpPage.hpp>
 #include <variant>
 
 struct HttpResponse

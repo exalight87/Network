@@ -1,6 +1,6 @@
 # Examples
 
-This directory contains example HTTP servers demonstrating different use cases of the library.
+This directory contains small examples demonstrating the HTTP kernel and optional integrations.
 
 ## Available Examples
 
@@ -51,6 +51,21 @@ xmake build example_api_server
 xmake run example_api_server
 ```
 
+### 4. Curl Client (`curl_client/`)
+**Minimal client using the optional libcurl integration.**
+
+- Builds only when `with_curl` is enabled
+- Demonstrates `NetworkCurl::Get`
+- Best for: Testing or learning the integration layer
+
+**Quick Start:**
+```bash
+# From project root
+xmake f --with_curl=y
+xmake build example_curl_client
+xmake run example_curl_client http://example.com
+```
+
 ## Building Examples
 
 Build from the **project root** directory:
@@ -60,7 +75,7 @@ Build from the **project root** directory:
 xmake build example_simple_server
 xmake run example_simple_server
 
-# Build all examples
+# Build all kernel-only examples
 xmake build example_simple_server example_file_server example_api_server
 ```
 
@@ -96,10 +111,15 @@ examples/
 │   ├── main.cpp
 │   ├── xmake.lua
 │   └── README.md
-└── api_server/            # REST API example
-    ├── main.cpp
-    ├── xmake.lua
-    └── README.md
+├── api_server/            # REST API example
+│   ├── main.cpp
+│   ├── xmake.lua
+│   └── README.md
+├── curl_client/           # Optional libcurl integration example
+│   ├── main.cpp
+│   └── README.md
+└── showcase_server/       # Main demo target used by http_server
+    └── main.cpp
 ```
 
 ## Library Features Demonstrated
@@ -112,9 +132,10 @@ examples/
 - [x] Content-Type headers
 - [x] Error handling (404)
 - [x] Command-line port configuration
+- [x] Optional libcurl client integration
 
 ## Documentation
 
 For more details, see:
 - [Main Project README](../README.md)
-- [Library Documentation](../src/)
+- [Public headers](../include/test_curl/)

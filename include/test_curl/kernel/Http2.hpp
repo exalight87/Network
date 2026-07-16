@@ -4,7 +4,7 @@
 #include <string>
 #include <map>
 #include <memory>
-#include <Result.hpp>
+#include <test_curl/kernel/Result.hpp>
 
 // HTTP/2 Connection Preface
 constexpr const char* HTTP2_CONNECTION_PREFACE = "PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n";

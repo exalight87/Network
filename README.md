@@ -1,6 +1,9 @@
-# C++ HTTP Server & Curl Wrapper
+# C++ HTTP Kernel & Curl Integration
 
-Bibliotheque C++23 fournissant un serveur HTTP leger, un systeme de routes hierarchiques, un support de fichiers statiques, une generation simple de pages HTML, une documentation automatique des endpoints, ainsi qu'un wrapper minimal autour de libcurl.
+Bibliotheque C++23 separee en deux couches :
+
+- `http_kernel` : serveur HTTP, routes, parsing, reponses, fichiers statiques et documentation automatique.
+- `http_curl` : integration optionnelle libcurl pour les requetes HTTP clientes.
 
 ## Fonctionnalites
 
@@ -21,8 +24,8 @@ Bibliotheque C++23 fournissant un serveur HTTP leger, un systeme de routes hiera
 
 - Compilateur C++23
 - [Xmake](https://xmake.io/)
-- libcurl
-- GoogleTest
+- libcurl, uniquement pour `http_curl`, `example_curl_client` et les tests d'integration
+- GoogleTest, uniquement pour les tests gtest
 
 Sous Linux, le serveur utilise aussi `pthread` et `epoll`.
 
@@ -32,12 +35,28 @@ Sous Linux, le serveur utilise aussi `pthread` et `epoll`.
 xmake
 ```
 
+Par defaut, les dependances externes xmake sont desactivees afin que le kernel et les exemples serveur restent buildables seuls.
+
+Activer GoogleTest :
+
+```bash
+xmake f --with_gtest=y
+```
+
+Activer GoogleTest et libcurl :
+
+```bash
+xmake f --with_gtest=y --with_curl=y
+```
+
 Build d'un target precis :
 
 ```bash
+xmake build http_kernel
 xmake build http_server
 xmake build example_simple_server
 xmake build example_api_server
+xmake build example_curl_client
 xmake build route_duplicate_tests
 ```
 
@@ -88,10 +107,10 @@ curl http://localhost:9090/docs
 ## Exemple minimal
 
 ```cpp
-#include <HttpServer.hpp>
-#include <HttpRoute.hpp>
-#include <HttpRequest.hpp>
-#include <HttpResponse.hpp>
+#include <test_curl/kernel/HttpServer.hpp>
+#include <test_curl/kernel/HttpRoute.hpp>
+#include <test_curl/kernel/HttpRequest.hpp>
+#include <test_curl/kernel/HttpResponse.hpp>
 #include <iostream>
 
 int main()
@@ -153,6 +172,7 @@ Une route `/docs` est alors ajoutee au demarrage du serveur. Elle liste les rout
 | `example_simple_server` | Serveur minimal "Hello, World!" |
 | `example_file_server` | Serveur de fichiers statiques depuis `public/` |
 | `example_api_server` | API JSON avec routes imbriquees et parametres |
+| `example_curl_client` | Client GET minimal utilisant l'integration libcurl |
 
 Lancer un exemple :
 
@@ -172,7 +192,7 @@ curl http://localhost:8080/docs
 ## Wrapper curl
 
 ```cpp
-#include <NetworkCurl.hpp>
+#include <test_curl/integrations/curl/NetworkCurl.hpp>
 #include <format>
 #include <iostream>
 
@@ -190,11 +210,20 @@ int main()
 ## Tests
 
 ```bash
+xmake build core_unit_tests
+xmake build route_duplicate_tests
 xmake build server_tests
 xmake build performance_tests
 xmake build robustness_tests
-xmake build route_duplicate_tests
 ```
+
+Ou lancer toute la suite activee par la configuration courante :
+
+```bash
+xmake test -j1
+```
+
+`-j1` force l'execution sequentielle des binaires de tests d'integration, qui ouvrent des ports localhost.
 
 Ou lancer un test compile :
 
@@ -205,9 +234,13 @@ xmake run route_duplicate_tests
 ## Structure du projet
 
 ```text
-src/                    Code source principal
-tests/                  Tests GoogleTest
-examples/               Exemples d'utilisation
+include/test_curl/kernel/              API publique du kernel HTTP
+include/test_curl/integrations/curl/   API publique de l'integration curl
+src/kernel/                            Implementation du kernel HTTP
+src/integrations/curl/                 Implementation libcurl
+tests/support/                         Helpers de tests partages
+tests/                                 Tests unitaires et integration
+examples/                              Exemples d'utilisation
 public/                 Fichiers servis par l'exemple file_server
 website/                Page servie par le serveur principal
 resources/              Ressources statiques

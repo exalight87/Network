@@ -1,15 +1,24 @@
-#include <HttpRequest.hpp>
-#include <HttpResponse.hpp>
-#include <HttpRoute.hpp>
+#include <test_curl/kernel/HttpRequest.hpp>
+#include <test_curl/kernel/HttpResponse.hpp>
+#include <test_curl/kernel/HttpRoute.hpp>
 
-#include <cassert>
 #include <filesystem>
 #include <fstream>
 #include <ranges>
+#include <stdexcept>
 #include <string>
+#include <string_view>
 
 namespace
 {
+    void expect(bool condition, std::string_view message)
+    {
+        if (!condition)
+        {
+            throw std::runtime_error(std::string(message));
+        }
+    }
+
     void testHttpRequestParsesCompleteBody()
     {
         const std::string raw =
@@ -20,11 +29,11 @@ namespace
             "line1\r\nline2=value";
 
         HttpRequest request;
-        assert(request.parse(std::string_view(raw.data(), raw.size())));
-        assert(request.method == HttpRequest::POST);
-        assert(request.url.path == "/submit");
-        assert(request.url.queryParams.at("name") == "Jane Doe");
-        assert(request.body == "line1\r\nline2=value");
+        expect(request.parse(std::string_view(raw.data(), raw.size())), "request should parse");
+        expect(request.method == HttpRequest::POST, "method should be POST");
+        expect(request.url.path == "/submit", "path should be /submit");
+        expect(request.url.queryParams.at("name") == "Jane Doe", "query param should be decoded");
+        expect(request.body == "line1\r\nline2=value", "body should keep CRLF content");
     }
 
     void testDynamicRouteOwnsPath()
@@ -46,8 +55,8 @@ namespace
         request.method = HttpRequest::GET;
         HttpResponse response;
 
-        assert(route(splitPath, request, response) == HttpRoute::MatchResult::Matched);
-        assert(response.code == 200);
+        expect(route(splitPath, request, response) == HttpRoute::MatchResult::Matched, "dynamic route should match");
+        expect(response.code == 200, "dynamic route should set status 200");
     }
 
     void testMethodNotAllowedIsVisible()
@@ -66,9 +75,9 @@ namespace
         request.method = HttpRequest::GET;
         HttpResponse response;
 
-        assert(route(splitPath, request, response) == HttpRoute::MatchResult::MethodNotAllowed);
-        assert(response.code == 405);
-        assert(response.headers.at("Allow") == "POST");
+        expect(route(splitPath, request, response) == HttpRoute::MatchResult::MethodNotAllowed, "GET should be rejected");
+        expect(response.code == 405, "method mismatch should set 405");
+        expect(response.headers.at("Allow") == "POST", "Allow header should expose POST");
     }
 
     void testStaticFilesStayInsideBaseDir()
@@ -85,10 +94,10 @@ namespace
         }
 
         HttpResponse ok;
-        assert(ok.loadFileFrom("public", "index.html"));
+        expect(ok.loadFileFrom("public", "index.html"), "file inside public should load");
 
         HttpResponse traversal;
-        assert(!traversal.loadFileFrom("public", "../README.md"));
+        expect(!traversal.loadFileFrom("public", "../README.md"), "path traversal should be rejected");
 
         std::filesystem::current_path(previousPath);
         std::filesystem::remove_all(testRoot);

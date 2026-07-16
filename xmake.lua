@@ -2,209 +2,119 @@ add_rules("mode.debug", "mode.release")
 set_warnings("all", "error")
 set_languages("c++23")
 
--- Enable compilation database for LSP support
 add_rules("plugin.compile_commands.autoupdate", {outputdir = ".vscode"})
 
-add_requires("libcurl", "gtest")
+option("with_gtest")
+    set_default(false)
+    set_showmenu(true)
+    set_description("Enable xmake-managed GoogleTest targets")
+option_end()
 
-target("test_curl")
+option("with_curl")
+    set_default(false)
+    set_showmenu(true)
+    set_description("Enable xmake-managed libcurl integration targets")
+option_end()
+
+local gtest_enabled = has_config("with_gtest")
+local curl_enabled = has_config("with_curl")
+
+if gtest_enabled then
+    add_requires("gtest")
+end
+
+if curl_enabled then
+    add_requires("libcurl")
+end
+
+local kernel_headers = "include/test_curl/kernel/*.hpp"
+local kernel_sources = "src/kernel/*.cpp"
+
+local function add_project_includes()
+    add_includedirs("include", {public = true})
+end
+
+local function add_platform_links()
+    if is_plat("windows") then
+        add_syslinks("ws2_32")
+        add_defines("_CRT_SECURE_NO_WARNINGS")
+    else
+        add_syslinks("pthread")
+    end
+end
+
+target("http_kernel")
     set_kind("static")
-    add_files("src/*.cpp")
-    remove_files("src/main.cpp")
-    add_includedirs("src")
-    add_headerfiles("src/*.hpp", {prefixdir = "include"})
-    add_packages("libcurl")
-    add_defines("_CRT_SECURE_NO_WARNINGS")
+    add_project_includes()
+    add_files(kernel_sources)
+    add_headerfiles(kernel_headers, {prefixdir = "test_curl/kernel"})
+    add_platform_links()
 
--- Add test target
-target("core_unit_tests")
-    set_kind("binary")
-    add_files("tests/core_unit_test.cpp")
-    add_files("src/HttpRequest.cpp", "src/HttpResponse.cpp", "src/HttpPage.cpp", "src/HttpRoute.cpp")
-    add_includedirs("tests")
-    add_includedirs("src")
-
-target("server_tests")
-    set_kind("binary")
-    add_files("tests/server_test.cpp")
-    add_deps("test_curl", "http_server")
-    add_packages("gtest", "libcurl")
-    
-    add_includedirs("tests")
-    add_includedirs("src")
-
-target("performance_tests")
-    set_kind("binary")
-    add_files("tests/performance_test.cpp")
-    add_deps("test_curl", "http_server")
-    add_packages("gtest", "libcurl")
-    
-    add_includedirs("tests")
-    add_includedirs("src")
-
-    if is_plat("windows") then
-        add_syslinks("kernel32")
+target("http_curl")
+    set_kind("static")
+    set_enabled(curl_enabled)
+    add_project_includes()
+    add_files("src/integrations/curl/*.cpp")
+    add_headerfiles("include/test_curl/integrations/curl/*.hpp", {prefixdir = "test_curl/integrations/curl"})
+    if curl_enabled then
+        add_packages("libcurl", {public = true})
     end
-
-target("robustness_tests")
-    set_kind("binary")
-    add_files("tests/robustness_test.cpp")
-    add_deps("test_curl", "http_server")
-    add_packages("gtest", "libcurl")
-    
-    add_includedirs("tests")
-    add_includedirs("src")
-
-    if is_plat("windows") then
-        add_syslinks("kernel32")
-    end
-
-target("route_duplicate_tests")
-    set_kind("binary")
-    add_files("tests/route_duplicate_test.cpp")
-    add_deps("test_curl")
-    add_packages("gtest")
-    
-    add_includedirs("tests")
-    add_includedirs("src")
-
-    if is_plat("windows") then
-        add_syslinks("kernel32")
-    end
+    add_platform_links()
 
 target("http_server")
     set_kind("binary")
-    add_files("src/main.cpp")
-    add_deps("test_curl")
-    add_includedirs("src")
-    add_headerfiles("src/*.hpp", {prefixdir = "include"})
-    add_packages("libcurl")
-    if not is_plat("windows") then
-        add_syslinks("pthread")
-    end
-    add_defines("_CRT_SECURE_NO_WARNINGS")
+    add_project_includes()
+    add_files("examples/showcase_server/main.cpp")
+    add_deps("http_kernel")
+    add_platform_links()
 
--- Example: Simple Server
-target("example_simple_server")
+target("core_unit_tests")
     set_kind("binary")
-    add_files("examples/simple_server/main.cpp")
-    add_deps("test_curl")
-    add_includedirs("src")
-    add_packages("libcurl")
-    if not is_plat("windows") then
-        add_syslinks("pthread")
-    end
-    add_defines("_CRT_SECURE_NO_WARNINGS")
+    add_project_includes()
+    add_files("tests/core_unit_test.cpp")
+    add_deps("http_kernel")
+    add_platform_links()
+    add_tests("core_unit_tests")
 
--- Example: File Server
-target("example_file_server")
-    set_kind("binary")
-    add_files("examples/file_server/main.cpp")
-    add_deps("test_curl")
-    add_includedirs("src")
-    add_packages("libcurl")
-    if not is_plat("windows") then
-        add_syslinks("pthread")
-    end
-    add_defines("_CRT_SECURE_NO_WARNINGS")
-
--- Example: API Server
-target("example_api_server")
-    set_kind("binary")
-    add_files("examples/api_server/main.cpp")
-    add_deps("test_curl")
-    add_includedirs("src")
-    add_packages("libcurl")
-    if not is_plat("windows") then
-        add_syslinks("pthread")
-    end
-    add_defines("_CRT_SECURE_NO_WARNINGS")
-
-task("test")
-    set_menu {
-        usage = "xmake test",
-        description = "Build and run all test binaries"
-    }
-    on_run(function ()
-        local targets = {
-            "core_unit_tests",
-            "route_duplicate_tests",
-            "server_tests",
-            "performance_tests",
-            "robustness_tests"
-        }
-
-        for _, target in ipairs(targets) do
-            os.exec("xmake build " .. target)
-            os.exec("xmake run " .. target)
+local function add_gtest_target(name, source, deps, enabled)
+    target(name)
+        set_kind("binary")
+        set_enabled(enabled)
+        add_project_includes()
+        add_includedirs("tests")
+        add_files(source)
+        for _, dep in ipairs(deps) do
+            add_deps(dep)
         end
-    end)
+        if gtest_enabled then
+            add_packages("gtest")
+        end
+        add_platform_links()
+        add_tests(name)
+end
 
---
--- If you want to known more usage about xmake, please see https://xmake.io
---
--- ## FAQ
---
--- You can enter the project directory firstly before building project.
---
---   $ cd projectdir
---
--- 1. How to build project?
---
---   $ xmake
---
--- 2. How to configure project?
---
---   $ xmake f -p [macosx|linux|iphoneos ..] -a [x86_64|i386|arm64 ..] -m [debug|release]
---
--- 3. Where is the build output directory?
---
---   The default output directory is `./build` and you can configure the output directory.
---
---   $ xmake f -o outputdir
---   $ xmake
---
--- 4. How to run and debug target after building project?
---
---   $ xmake run [targetname]
---   $ xmake run -d [targetname]
---
--- 5. How to install target to the system directory or other output directory?
---
---   $ xmake install
---   $ xmake install -o installdir
---
--- 6. Add some frequently-used compilation flags in xmake.lua
---
--- @code
---    -- add debug and release modes
---    add_rules("mode.debug", "mode.release")
---
---    -- add macro definition
---    add_defines("NDEBUG", "_GNU_SOURCE=1")
---
---    -- set warning all as error
---    set_warnings("all", "error")
---
---    -- set language: c99, c++11
---    set_languages("c99", "c++11")
---
---    -- set optimization: none, faster, fastest, smallest
---    set_optimize("fastest")
---
---    -- add include search directories
---    add_includedirs("/usr/include", "/usr/local/include")
---
---    -- add link libraries and search directories
---    add_links("tbox")
---    add_linkdirs("/usr/local/lib", "/usr/lib")
---
---    -- add system link libraries
---    add_syslinks("z", "pthread")
---
---    -- add compilation and link flags
---    add_cxflags("-stdnolib", "-fno-strict-aliasing")
---    add_ldflags("-L/usr/local/lib", "-lpthread", {force = true})
---
--- @endcode
---
+add_gtest_target("route_duplicate_tests", "tests/route_duplicate_test.cpp", {"http_kernel"}, gtest_enabled)
+add_gtest_target("server_tests", "tests/server_test.cpp", {"http_kernel", "http_curl"}, gtest_enabled and curl_enabled)
+add_gtest_target("performance_tests", "tests/performance_test.cpp", {"http_kernel", "http_curl"}, gtest_enabled and curl_enabled)
+add_gtest_target("robustness_tests", "tests/robustness_test.cpp", {"http_kernel", "http_curl"}, gtest_enabled and curl_enabled)
+
+local function add_example_target(name, source)
+    target(name)
+        set_kind("binary")
+        add_project_includes()
+        add_files(source)
+        add_deps("http_kernel")
+        add_platform_links()
+end
+
+add_example_target("example_simple_server", "examples/simple_server/main.cpp")
+add_example_target("example_file_server", "examples/file_server/main.cpp")
+add_example_target("example_api_server", "examples/api_server/main.cpp")
+
+target("example_curl_client")
+    set_kind("binary")
+    set_enabled(curl_enabled)
+    add_project_includes()
+    add_files("examples/curl_client/main.cpp")
+    add_deps("http_curl")
+    add_platform_links()

@@ -11,7 +11,7 @@
 #define SOCKET int
 #define INVALID_SOCKET (-1)
 #endif
-#include <Result.hpp>
+#include <test_curl/kernel/Result.hpp>
 #include <chrono>
 #include <thread>
 #include <utility>

@@ -15,10 +15,10 @@
 #include <string_view>
 #include <span>
 #include <array>
-#include <Result.hpp>
+#include <test_curl/kernel/Result.hpp>
 #include <thread>
 #include <functional>
-#include <ConnectionPool.hpp>
+#include <test_curl/kernel/ConnectionPool.hpp>
 
 struct HttpRoute;
 

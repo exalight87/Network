@@ -1,15 +1,17 @@
-#include <HttpServer.hpp>
-#include <HttpRoute.hpp>
-#include <HttpRequest.hpp>
-#include <HttpResponse.hpp>
-#include <iostream>
 #include <filesystem>
+#include <fstream>
+#include <iostream>
+#include <test_curl/kernel/HttpRequest.hpp>
+#include <test_curl/kernel/HttpResponse.hpp>
+#include <test_curl/kernel/HttpRoute.hpp>
+#include <test_curl/kernel/HttpServer.hpp>
 
-int main(int argc, char **argv)
+int main(int argc, char** argv)
 {
     // Configure server port (default: 8080)
     uint16_t port = 8080;
-    if (argc > 1) {
+    if (argc > 1)
+    {
         port = static_cast<uint16_t>(std::stoi(argv[1]));
     }
 
@@ -19,32 +21,35 @@ int main(int argc, char **argv)
 
     // Create a public directory for static files
     std::filesystem::create_directories("public");
+    std::ofstream file("public/index.html");
+    file << "<h1>File Server Test</h1>";
+    file.close();
 
     // Add route to serve static files from "public/" directory
-    server.addRoute({
-        .route = "",
-        .callable = [](const HttpRequest &request, HttpResponse &response) -> bool
-        {
-            // Build file path inside the configured public root.
-            std::string filePath = request.url.path;
-            
-            // Default to index.html for root path
-            if (request.url.path == "/" || request.url.path.empty()) {
-                filePath = "index.html";
-            }
+    server.addRoute({.route = "",
+                     .callable = [](const HttpRequest& request, HttpResponse& response) -> bool
+                     {
+                         // Build file path inside the configured public root.
+                         std::string filePath = request.url.path;
 
-            // Try to load the file
-            if (response.loadFileFrom("public", filePath)) {
-                response.code = 200;
-                return true;
-            }
+                         // Default to index.html for root path
+                         if (request.url.path == "/" || request.url.path.empty())
+                         {
+                             filePath = "index.html";
+                         }
 
-            // File not found
-            response.body = "File not found: " + request.url.path;
-            response.code = 404;
-            return true;
-        }
-    });
+                         // Try to load the file
+                         if (response.loadFileFrom("public", filePath))
+                         {
+                             response.code = 200;
+                             return true;
+                         }
+
+                         // File not found
+                         response.body = "File not found: " + request.url.path;
+                         response.code = 404;
+                         return true;
+                     }});
 
     // Start the server
     std::cout << "Starting file server on port " << port << "...\n";

@@ -49,7 +49,7 @@ curl http://localhost:8080/about
 
 # Test JSON API endpoints
 curl http://localhost:8080/api/users
-curl http://localhost:8080/api/users/1
+curl http://localhost:8080/api/users/1/info
 curl http://localhost:8080/api/health
 ```
 
@@ -62,6 +62,11 @@ Or open in a web browser:
 ### API Endpoint Example
 
 ```cpp
+#include <test_curl/kernel/HttpRequest.hpp>
+#include <test_curl/kernel/HttpResponse.hpp>
+#include <test_curl/kernel/HttpRoute.hpp>
+#include <test_curl/kernel/HttpServer.hpp>
+
 server.addRoute({
     .route = "api/users",
     .callable = [](const HttpRequest &request, HttpResponse &response) -> bool
@@ -101,8 +106,7 @@ server.addRoute({
     .route = "api/users/{id}",
     .callable = [](const HttpRequest &request, HttpResponse &response) -> bool
     {
-        // Access path parameters from request.url
-        // (Implementation depends on library's parameter extraction)
+        const auto id = request.pathParams.at("id");
         return true;
     }
 });
