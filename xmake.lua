@@ -5,7 +5,6 @@ set_languages("c++23")
 -- Enable compilation database for LSP support
 add_rules("plugin.compile_commands.autoupdate", {outputdir = ".vscode"})
 
-
 add_requires("libcurl", "gtest")
 
 target("test_curl")
@@ -20,12 +19,12 @@ target("test_curl")
 target("server_tests")
     set_kind("binary")
     add_files("tests/server_test.cpp")
-    add_deps("test_curl")
+    add_deps("test_curl", "http_server")
     add_packages("gtest", "libcurl")
     
     add_includedirs("tests")
     add_includedirs("src")
-
+    
     after_build(function (target)
         os.exec(target:targetfile())
     end)
@@ -33,11 +32,15 @@ target("server_tests")
 target("performance_tests")
     set_kind("binary")
     add_files("tests/performance_test.cpp")
-    add_deps("test_curl")
+    add_deps("test_curl", "http_server")
     add_packages("gtest", "libcurl")
     
     add_includedirs("tests")
     add_includedirs("src")
+
+    if is_plat("windows") then
+        add_syslinks("kernel32")
+    end
 
     after_build(function (target)
         os.exec(target:targetfile())
@@ -46,11 +49,15 @@ target("performance_tests")
 target("robustness_tests")
     set_kind("binary")
     add_files("tests/robustness_test.cpp")
-    add_deps("test_curl")
+    add_deps("test_curl", "http_server")
     add_packages("gtest", "libcurl")
     
     add_includedirs("tests")
     add_includedirs("src")
+
+    if is_plat("windows") then
+        add_syslinks("kernel32")
+    end
 
     after_build(function (target)
         os.exec(target:targetfile())
@@ -64,6 +71,10 @@ target("route_duplicate_tests")
     
     add_includedirs("tests")
     add_includedirs("src")
+
+    if is_plat("windows") then
+        add_syslinks("kernel32")
+    end
 
     after_build(function (target)
         os.exec(target:targetfile())
